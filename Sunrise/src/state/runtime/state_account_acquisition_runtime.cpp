@@ -69,6 +69,63 @@ using Quest = build_data::items::QuestInitialization;
 }
 
 /**
+ * Hold the save lock; only an owned, active quest member can earn counter credit.
+ * @param character Selected character before consuming the Prime Engram.
+ * @param mutation Receives distinct counter changes; use only on success.
+ * @return False for missing metadata, conflicting bindings, or unreadable progress.
+ */
+[[nodiscard]] bool prepare_prime_objectives(const CharacterState& character,
+                                            PendingItemAcquisition& mutation) noexcept {
+    using Binding = build_data::items::QuestCounterBinding;
+    for (std::size_t index = 0; index < character.inventory.count; ++index) {
+        build_data::items::Definition item{};
+        if (!build_data::find_item_definition_hash(character.inventory.values[index].definitionHash,
+                                                   item)
+            || !build_data::items::valid(item.primeDecryption)) {
+            return false;
+        }
+        const Binding& binding = item.primeDecryption;
+        if (binding == Binding{}) {
+            continue;
+        }
+        std::int32_t stage = 0;
+        if (item.bucketId != build_data::items::kPursuitBucketId
+            || !investment::store::read_unlock(
+                investment::store::Bank::characterObjectValues, binding.stageRow, stage)) {
+            return false;
+        }
+        if (stage != binding.stageValue) {
+            continue;
+        }
+        std::optional<std::int32_t> before;
+        if (!investment::store::read_character_objective(
+                character.soid, binding.valueSlot, before)) {
+            return false;
+        }
+        const std::int32_t value = before.value_or(0);
+        if (value >= binding.threshold) {
+            continue;
+        }
+        const auto credits =
+            std::span(mutation.objectiveCredits).first(mutation.objectiveCreditCount);
+        const auto prior = std::find_if(credits.begin(), credits.end(), [&](const auto& credit) {
+            return credit.binding.valueSlot == binding.valueSlot;
+        });
+        if (prior != credits.end()) {
+            if (prior->binding.threshold != binding.threshold) {
+                return false;
+            }
+            continue;
+        }
+        if (mutation.objectiveCreditCount == mutation.objectiveCredits.size()) {
+            return false;
+        }
+        mutation.objectiveCredits[mutation.objectiveCreditCount++] = {binding, before, value + 1};
+    }
+    return true;
+}
+
+/**
  * Hold investment::store::g_mutex while capturing inventory and quest state together.
  * @param account State before any acquisition charge.
  * @param chargedAccount State after the prepared material charge.
@@ -91,6 +148,7 @@ using Quest = build_data::items::QuestInitialization;
 
     const CharacterState& before = account.characters[characterIndex];
     std::size_t inventoryIndex = before.inventory.count;
+    bool primeDecryption = false;
     if (source.consumedInstanceSoid != 0) {
         namespace pass = progression::season_pass;
         for (std::size_t index = 0; index < before.inventory.count; ++index) {
@@ -102,8 +160,10 @@ using Quest = build_data::items::QuestInitialization;
         build_data::items::Definition reward{};
         item_details::Definition rewardDetail{};
         if (!source.direct || profileChanged || inventoryIndex == before.inventory.count
-            || before.inventory.values[inventoryIndex].definitionHash
-                   != pass::kOwnedLegendaryEngramHash
+            || (before.inventory.values[inventoryIndex].definitionHash
+                    != pass::kOwnedLegendaryEngramHash
+                && before.inventory.values[inventoryIndex].definitionHash
+                       != pass::kOwnedPrimeEngramHash)
             || before.inventory.values[inventoryIndex].quantity != 1
             || !pass::contains_engram_reward(pass::kLegendaryEngramHash,
                                              definitionHash,
@@ -118,6 +178,8 @@ using Quest = build_data::items::QuestInitialization;
                    != item_details::InstancedDefinitionState::instanced) {
             return false;
         }
+        primeDecryption =
+            before.inventory.values[inventoryIndex].definitionHash == pass::kOwnedPrimeEngramHash;
     }
     if (inventoryIndex >= before.inventory.values.size()
         || before.nextInventorySerial
@@ -188,6 +250,11 @@ using Quest = build_data::items::QuestInitialization;
         && !investment::store::read_unlock(quest_bank(mutation.questInitialization),
                                            mutation.questInitialization.row,
                                            mutation.previousQuestValue)) {
+        return false;
+    }
+    mutation.objectiveCredits = {};
+    mutation.objectiveCreditCount = 0;
+    if (primeDecryption && !prepare_prime_objectives(before, mutation)) {
         return false;
     }
     mutation.prepared = true;
@@ -430,6 +497,10 @@ namespace runtime::detail {
 [[nodiscard]] static bool
 valid_item_acquisition_source(const PendingItemAcquisition& mutation) noexcept {
     if (!mutation.prepared || mutation.characterSoid == 0 || mutation.acquiredInstanceSoid == 0
+        || mutation.objectiveCreditCount > mutation.objectiveCredits.size()
+        || (mutation.consumedInstanceSoid == 0
+            && (mutation.objectiveCreditCount != 0
+                || mutation.objectiveCredits != decltype(mutation.objectiveCredits){}))
         || mutation.accountSoid == 0
         || mutation.acquiredDefinitionHash == authored_inventory::kNoDefinitionHash
         || mutation.characterIndex >= kCharacterCapacity
@@ -517,6 +588,8 @@ valid_item_acquisition_source(const PendingItemAcquisition& mutation) noexcept {
                 {.consumedInstanceSoid = mutation.consumedInstanceSoid, .direct = true},
                 canonical)
             || mutation.profileChanged || mutation.inventoryIndex != canonical.inventoryIndex
+            || mutation.objectiveCreditCount != canonical.objectiveCreditCount
+            || mutation.objectiveCredits != canonical.objectiveCredits
             || !same_character(mutation.afterCharacter, canonical.afterCharacter)) {
             return false;
         }
@@ -646,9 +719,9 @@ bool preview_direct_item_bundle(const PendingDirectItemBundle& mutation,
 }
 
 /**
- * Inventory and first-step state share one transaction; failure rolls both back.
+ * Inventory, first-step state and earned counters share one rollback boundary.
  * @param mutation Prepared grant consumed on either success or failure.
- * @return True when both writes commit against the unchanged prepared state.
+ * @return True when all writes commit against the unchanged prepared state.
  */
 bool commit_item_acquisition(PendingItemAcquisition& mutation) noexcept {
     const PendingItemAcquisition& prepared = mutation;
@@ -665,6 +738,19 @@ bool commit_item_acquisition(PendingItemAcquisition& mutation) noexcept {
         && prepared.previousQuestValue == build_data::items::kUnsetQuestValue
         && !investment::store::write_unlock(quest_bank(quest), quest.row, quest.value)) {
         return false;
+    }
+    for (std::size_t index = 0; index < prepared.objectiveCreditCount; ++index) {
+        const auto& credit = prepared.objectiveCredits[index];
+        if (!investment::store::write_character_objective(
+                prepared.characterSoid, credit.binding.valueSlot, credit.after)) {
+            return false;
+        }
+    }
+    if (prepared.objectiveCreditCount != 0) {
+        InvestmentState publication{};
+        if (!investment_snapshot(publication)) {
+            return false;
+        }
     }
     return transaction.commit();
 }

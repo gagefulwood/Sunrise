@@ -36,6 +36,8 @@ inline constexpr std::uint32_t kExoticEngramHash = 3875551374U;
 
 /** Owned Legendary Engrams advertise the same weapon and class-armour pools as the pass. */
 inline constexpr std::uint32_t kOwnedLegendaryEngramHash = 66825403U;
+/** Manual Cryptarch Prime Engram; the auto-opening Prime variant is not a decrypt source. */
+inline constexpr std::uint32_t kOwnedPrimeEngramHash = 226330008U;
 
 /**
  * Exact non-class rewards advertised by the two auto-decrypting engram definitions.

@@ -26,6 +26,10 @@ constexpr std::uint64_t kSource = 0x4000000000000113ULL;
 constexpr std::int32_t kLevel = 106;
 /** Fixture catalogue rows select a weapon or a class-specific armour reward. */
 constexpr std::uint16_t kWeaponIndex = 1, kTitanIndex = 2, kHunterIndex = 3;
+/** Synthetic quest identity and binding keep event tests independent of installed table indices. */
+constexpr std::uint32_t kQuestHash = 60001;
+constexpr state::build_data::items::QuestCounterBinding kPrimeBinding{200, 2, 7, 400};
+state::build_data::items::QuestCounterBinding g_primeBinding = kPrimeBinding;
 bool g_resolverAccepts = true;
 
 /** @param passed Required condition. @param label Failed check description. */
@@ -52,6 +56,10 @@ std::string read_text(const std::string& path) {
 
 /** Resets only the in-memory save; no installed game data is opened. */
 void reset_fixture() {
+    check(store::execute("DELETE FROM character_objective_values; DELETE FROM unlocks; "
+                         "DELETE FROM family5;"),
+          "clear fixture progress");
+    g_primeBinding = kPrimeBinding;
     state::AccountState account{};
     account.primarySoid = kAccount;
     account.characterCount = 2;
@@ -167,6 +175,149 @@ void verify_transaction() {
           "unsupported source refused");
 }
 
+/**
+ * Seeds a manual Prime and, optionally, the active quest in the disposable save.
+ * @param ownsQuest False leaves no quest item despite an active saved stage.
+ */
+void prime_fixture(bool ownsQuest = true) {
+    reset_fixture();
+    auto account = store::account();
+    auto& character = account.characters[0];
+    character.inventory.values[0].definitionHash = pass::kOwnedPrimeEngramHash;
+    if (ownsQuest) {
+        auto& quest = character.inventory.values[character.inventory.count++];
+        quest = character.inventory.values[0];
+        ++quest.instanceSoid;
+        quest.definitionHash = kQuestHash;
+        quest.mutationSerial = static_cast<std::int32_t>(character.nextInventorySerial++);
+    }
+    check(store::write_account(account), "seed Prime and owned quest");
+    check(store::write_unlock(
+              store::Bank::characterObjectValues, kPrimeBinding.stageRow, kPrimeBinding.stageValue),
+          "seed active stage");
+}
+
+/** @return Selected fixture character's saved counter, preserving absence. */
+std::optional<std::int32_t> prime_progress() {
+    std::optional<std::int32_t> value;
+    check(store::read_character_objective(kCharacter, kPrimeBinding.valueSlot, value),
+          "read Prime progress");
+    return value;
+}
+
+/** Exercises credit eligibility, stale inputs, saturation and joined rollback. */
+void verify_prime_credit() {
+    state::PendingItemAcquisition pending{};
+    prime_fixture();
+    check(store::write_character_objective(kOtherCharacter, kPrimeBinding.valueSlot, 1),
+          "seed other character progress");
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending)
+              && pending.objectiveCreditCount == 1 && !prime_progress(),
+          "prepare earns nothing before commit");
+    auto duplicate = pending;
+    check(state::commit_item_acquisition(pending) && prime_progress() == 1,
+          "successful Prime exchange earns one credit");
+    check(!state::commit_item_acquisition(duplicate) && prime_progress() == 1,
+          "replayed Prime cannot earn credit");
+    std::optional<std::int32_t> other;
+    check(store::read_character_objective(kOtherCharacter, kPrimeBinding.valueSlot, other)
+              && other == 1,
+          "other character untouched");
+    state::InvestmentState projected{};
+    check(state::investment_snapshot(projected) && projected.family5.valueCount == 1
+              && projected.family5.values[0].slot == kPrimeBinding.valueSlot
+              && projected.family5.values[0].value == 1,
+          "committed progress projects to Family 5");
+
+    for (const std::int32_t before : {0, 1, 2, 3}) {
+        prime_fixture();
+        check(store::write_character_objective(kCharacter, kPrimeBinding.valueSlot, before),
+              "seed counter boundary");
+        check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending)
+                  && state::commit_item_acquisition(pending)
+                  && prime_progress() == (before < kPrimeBinding.threshold ? before + 1 : before),
+              "credit stops at threshold without reducing saved progress");
+    }
+    prime_fixture(false);
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending)
+              && pending.objectiveCreditCount == 0 && state::commit_item_acquisition(pending)
+              && !prime_progress(),
+          "unowned quest earns nothing");
+    prime_fixture();
+    check(store::write_unlock(store::Bank::characterObjectValues, kPrimeBinding.stageRow, 0),
+          "seed inactive stage");
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending)
+              && pending.objectiveCreditCount == 0 && state::commit_item_acquisition(pending)
+              && !prime_progress(),
+          "inactive quest earns nothing");
+    prime_fixture();
+    auto saved = store::account();
+    saved.characters[0].inventory.values[0].definitionHash = pass::kOwnedLegendaryEngramHash;
+    check(store::write_account(saved), "Legendary with active Prime objective");
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending)
+              && pending.objectiveCreditCount == 0 && state::commit_item_acquisition(pending)
+              && !prime_progress(),
+          "Legendary is not Prime credit");
+
+    prime_fixture();
+    saved = store::account();
+    auto& character = saved.characters[0];
+    character.inventory.values[2] = character.inventory.values[1];
+    ++character.inventory.values[2].instanceSoid;
+    character.inventory.count = 3;
+    check(store::write_account(saved), "duplicate owned quest fixture");
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending)
+              && pending.objectiveCreditCount == 1 && state::commit_item_acquisition(pending)
+              && prime_progress() == 1,
+          "shared counter credited once");
+
+    prime_fixture();
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending),
+          "prepare stale counter");
+    check(store::write_character_objective(kCharacter, kPrimeBinding.valueSlot, 0),
+          "replace absent counter with explicit zero");
+    check(!state::commit_item_acquisition(pending), "absent and saved zero are distinct");
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending), "prepare stale stage");
+    check(store::write_unlock(store::Bank::characterObjectValues, kPrimeBinding.stageRow, 0),
+          "change active stage");
+    check(!state::commit_item_acquisition(pending), "changed stage refuses stale credit");
+    prime_fixture();
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending),
+          "prepare stale metadata");
+    ++g_primeBinding.threshold;
+    check(!state::commit_item_acquisition(pending), "changed binding refuses stale credit");
+    prime_fixture();
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending),
+          "prepare tampered credit");
+    ++pending.objectiveCredits[0].after;
+    check(!state::commit_item_acquisition(pending), "tampered credit refused");
+
+    prime_fixture();
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending),
+          "prepare failed credit");
+    check(store::execute("CREATE TRIGGER refuse_credit BEFORE INSERT ON character_objective_values "
+                         "BEGIN SELECT RAISE(ABORT,'test'); END"),
+          "install credit failure");
+    check(!state::commit_item_acquisition(pending) && !prime_progress()
+              && store::account().characters[0].inventory.values[0].instanceSoid == kSource,
+          "failed credit rolls back consume and reward");
+    check(store::execute("DROP TRIGGER refuse_credit"), "remove credit failure");
+
+    prime_fixture();
+    state::Family5State full{};
+    full.valueCount = full.values.size();
+    for (std::size_t index = 0; index < full.valueCount; ++index) {
+        full.values[index] = {static_cast<std::uint16_t>(index), 0};
+    }
+    check(store::write_family5(full), "fill native publication capacity");
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending)
+              && !state::commit_item_acquisition(pending) && !prime_progress()
+              && store::account().characters[0].inventory.values[0].instanceSoid == kSource,
+          "unpublishable credit rolls back consume and reward");
+    std::puts(
+        "PASS: Prime eligibility, character isolation, saturation, stale guards and atomic credit");
+}
+
 /** Ensures an exchange needs no spare inventory slot and ordinary grants still append. */
 void verify_inventory_capacity() {
     reset_fixture();
@@ -256,8 +407,18 @@ bool find_item_definition_index(std::uint16_t index, items::Definition& definiti
                                                        : pass::kLegendaryHunterArmour[0];
     return true;
 }
-/** Only fixture reward hashes resolve. */
+/** Fixture sources and quests expose no equipment detail or reward-pool membership. */
 bool find_item_definition_hash(std::uint32_t hash, items::Definition& definition) noexcept {
+    if (hash == pass::kOwnedPrimeEngramHash || hash == pass::kOwnedLegendaryEngramHash
+        || hash == kQuestHash) {
+        definition = {};
+        definition.definitionHash = hash;
+        if (hash == kQuestHash) {
+            definition.bucketId = items::kPursuitBucketId;
+            definition.primeDecryption = g_primeBinding;
+        }
+        return true;
+    }
     for (std::uint16_t index = kWeaponIndex; index <= kHunterIndex; ++index) {
         if (find_item_definition_index(index, definition) && definition.definitionHash == hash) {
             return true;
@@ -304,6 +465,12 @@ AccountState account_snapshot() noexcept {
     const std::lock_guard lock(store::g_mutex);
     return store::account();
 }
+/** Fixture projection uses real saved counters; no catalyst catalogue is installed here. */
+bool investment_snapshot(InvestmentState& output) noexcept {
+    const std::lock_guard lock(store::g_mutex);
+    return store::read_family5(output.family5)
+           && store::project_character_objectives(output.family5);
+}
 } // namespace sunrise::state
 
 namespace sunrise::core::log {
@@ -342,6 +509,7 @@ int main(int argc, char** argv) {
           "open disposable store");
     verify_request();
     verify_transaction();
+    verify_prime_credit();
     verify_inventory_capacity();
     verify_manifest();
     store::shutdown();

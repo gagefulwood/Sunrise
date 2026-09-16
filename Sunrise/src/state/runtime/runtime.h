@@ -3,9 +3,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <variant>
 
+#include "../build_data/items/quest_counter_binding.h"
 #include "../build_data/items/quest_initialization.h"
 #include "../build_data/records/definition.h"
 #include "state.h"
@@ -110,7 +112,16 @@ struct PendingEquipmentSwap {
     bool prepared{};
 };
 
-/** Prepared selected-character grant or exchange kept private until its reply and push fit. */
+/** A saved counter's before-image prevents stale transactions from earning duplicate credit. */
+struct PendingObjectiveCredit {
+    build_data::items::QuestCounterBinding binding{};
+    std::optional<std::int32_t> before{};
+    std::int32_t after{};
+
+    bool operator==(const PendingObjectiveCredit&) const = default;
+};
+
+/** Inventory and earned objective credit must commit together. */
 struct PendingItemAcquisition {
     CharacterState beforeCharacter{};
     CharacterState afterCharacter{};
@@ -140,6 +151,10 @@ struct PendingItemAcquisition {
     bool directGrant{};
     build_data::items::QuestInitialization questInitialization{};
     std::int32_t previousQuestValue{};
+    /** At most one binding per owned item, with shared counter slots credited once. */
+    std::array<PendingObjectiveCredit, account::inventory::kCharacterItemCapacity>
+        objectiveCredits{};
+    std::size_t objectiveCreditCount{};
     bool prepared{};
 
     /**
@@ -597,9 +612,9 @@ reserve_selected_character_inventory_serial(std::int32_t& mutationSerial) noexce
                                             unlocks::Table& afterUnlocks) noexcept;
 
 /**
- * Inventory and first-step state share one transaction; failure rolls both back.
+ * Inventory, first-step state and earned counters share one rollback boundary.
  * @param mutation Prepared grant consumed on either success or failure.
- * @return True when both writes commit against the unchanged prepared state.
+ * @return True when all writes commit against the unchanged prepared state.
  */
 [[nodiscard]] bool commit_item_acquisition(PendingItemAcquisition& mutation) noexcept;
 

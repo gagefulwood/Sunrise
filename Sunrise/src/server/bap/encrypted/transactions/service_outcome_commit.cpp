@@ -274,8 +274,11 @@ bool commit(ServiceOutcome& outcome, Publication& publication, const char*& reas
         return true;
     }
     if (auto* transaction = transaction_if<ItemAcquisitionTransaction>(outcome)) {
+        const bool objectiveProgress =
+            transaction->pending != nullptr && transaction->pending->objectiveCreditCount != 0;
         const bool committed = transaction->pending != nullptr
                                && state::commit_item_acquisition(*transaction->pending);
+        outcome.objectiveProgressChanged = committed && objectiveProgress;
         core::log::write(core::log::Channel::server,
                          committed ? core::log::Level::debug : core::log::Level::warn,
                          committed ? "ev=acquire stage=transaction_commit result=ok"

@@ -524,7 +524,8 @@ bool consume(Session& session,
             if (resyncsCommittedAccount) {
                 bap::arm_account_resync_everywhere();
             }
-            if (outcome.selectedCharacterChanged || artifactPurchase || outcome.hasArtifactReset) {
+            if (outcome.selectedCharacterChanged || artifactPurchase || outcome.hasArtifactReset
+                || outcome.objectiveProgressChanged) {
                 session.investmentRefreshArmed = true;
             }
             if (artifactPurchase || outcome.hasArtifactReset) {

@@ -480,6 +480,7 @@ void claim_season_pass_reward(const middleware::web_service::Message& message,
  * @param outcome Receives a pending atomic consume-and-grant, never a saved mutation.
  */
 void decrypt_engram(const middleware::web_service::Message& message, Outcome& outcome) noexcept {
+    // Manual Prime and Legendary share the supported gear pool; extra currencies are not granted.
     std::uint64_t instanceSoid = 0;
     std::uint16_t rewardItemIndex = 0;
     if (!middleware::web_service::messages::opcode2002::parse_request(message, instanceSoid)

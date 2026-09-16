@@ -187,6 +187,8 @@ struct ServiceOutcome {
 
     /** Selection can commit even when its Family-4 publication falls back to resync. */
     bool selectedCharacterChanged{};
+    /** Arm Family-5 publication only after inventory and objective credit commit. */
+    bool objectiveProgressChanged{};
 
     /** One service owns at most one independently versioned, exact-sized transaction. */
 
