@@ -8,8 +8,7 @@ namespace sunrise::state::account {
 
 /**
  * Reports whether an item is a pursuit the selected character already holds.
- * A pursuit is unique per character. Gear carries an equipment slot and consumables declare a
- * stack larger than one, so neither is one. Must match the client's own vendor-row gate.
+ * Only quest and bounty bucket items use this character-scoped uniqueness rule.
  * @param itemDefinitionIndex Item to classify.
  * @return True when this is a pursuit the selected character already holds.
  */

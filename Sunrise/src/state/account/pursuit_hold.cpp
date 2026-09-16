@@ -33,7 +33,8 @@ void report_classification(std::uint16_t itemDefinitionIndex,
 
 /** @return True when the detail row describes a pursuit rather than gear or a stack. */
 [[nodiscard]] bool pursuit_definition(const detail_domain::Definition& detail) noexcept {
-    return !detail.equipmentSlot.has_value() && detail.maxStackSize <= 1;
+    return detail.bucketId == build_data::items::kPursuitBucketId
+           && !detail.equipmentSlot.has_value() && detail.maxStackSize <= 1;
 }
 
 } // namespace

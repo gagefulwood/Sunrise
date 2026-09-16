@@ -353,8 +353,7 @@ bool grant_item_definition(const middleware::web_service::Message& message,
             message, "item_definition", collectibleIndex, itemDefinitionIndex, 0, 0);
         return false;
     }
-    // The same rule the client's native vendor-row gate applies locally, so a row that is still
-    // offered can never be one this grant would refuse.
+    // Quest uniqueness is character-scoped; other buckets keep their normal capacity checks.
     if (state::account::holds_pursuit(itemDefinitionIndex)) {
         report_item_acquisition(message,
                                 "already_held",
