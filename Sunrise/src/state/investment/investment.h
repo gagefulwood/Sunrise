@@ -8,6 +8,8 @@ namespace sunrise::state {
 
 /** The native family-5 lists hold 100 rows each. The 7-bit wire count is not the limit. */
 inline constexpr std::size_t kUnlockOverrideCapacity = 100;
+/** Authored value slots fit the nonnegative half of a signed 16-bit mapping. */
+inline constexpr std::uint16_t kUnlockValueSlotLimit = 0x8000U;
 
 /** One logical unlock-flag value stored by slot. */
 struct UnlockFlagOverride {

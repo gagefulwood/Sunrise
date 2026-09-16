@@ -357,7 +357,10 @@ void verify_generated() {
     put_array(value.objectiveTable, kObjectiveRow + 8, 0x320, 1, 0x80807D31U);
     put(value.objectiveTable, kObjectiveRow + 0x30, kChallengeCount);
     QuestTransition counted = read(value);
-    check(counted.objectives[0] == QuestPredicate{kObjectiveValueSlot, kChallengeCount},
+    check(counted.objectives[0]
+              == QuestPredicate{kObjectiveValueSlot,
+                                kChallengeCount,
+                                QuestPredicate::Input::characterCounter},
           "direct counter did not use the objective threshold");
     family = {};
     family.valueCount = 1;
@@ -434,8 +437,8 @@ void verify_retained(const char* retainedDirectory) {
     expected.successorItemIndex = 15286;
     expected.currentValue = 200;
     expected.nextValue = 300;
-    expected.objectives[0] = {13080, 3};
-    expected.objectives[1] = {13081, 2};
+    expected.objectives[0] = {13080, 3, QuestPredicate::Input::characterCounter};
+    expected.objectives[1] = {13081, 2, QuestPredicate::Input::characterCounter};
     expected.objectiveCount = 2;
     expected.completionEffect = 11484;
     check(output == expected, "retained counter requirements or completion reference differ");

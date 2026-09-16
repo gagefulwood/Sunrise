@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -38,6 +39,26 @@ void shutdown() noexcept;
 void set_sign_in_time(std::uint64_t seconds) noexcept;
 [[nodiscard]] bool read_family5(Family5State& output) noexcept;
 [[nodiscard]] bool write_family5(const Family5State& value) noexcept;
+/**
+ * Reads one character-owned counter without substituting an account override.
+ * @param characterSoid Stable identity of an existing character.
+ * @param slot Authored objective value slot.
+ * @param value Empty for an absent counter or a failed read; zero is a saved value.
+ * @return False for an invalid owner, slot or failed database read.
+ */
+[[nodiscard]] bool read_character_objective(std::uint64_t characterSoid,
+                                            std::uint16_t slot,
+                                            std::optional<std::int32_t>& value) noexcept;
+/**
+ * The caller validates earned credit and commits it with the event's other changes.
+ * @param characterSoid Stable identity of an existing character.
+ * @param slot Authored objective value slot.
+ * @param value Nonnegative absolute counter value, including an explicit zero.
+ * @return False for an invalid owner, slot, value or failed write.
+ */
+[[nodiscard]] bool write_character_objective(std::uint64_t characterSoid,
+                                             std::uint16_t slot,
+                                             std::int32_t value) noexcept;
 [[nodiscard]] bool read_unlocks(unlocks::Table& output, int characterSlot = -1) noexcept;
 [[nodiscard]] bool write_unlocks(const unlocks::Table& value, int characterSlot = -1) noexcept;
 [[nodiscard]] bool read_unlock(Bank bank, std::uint16_t slot, std::int32_t& value) noexcept;

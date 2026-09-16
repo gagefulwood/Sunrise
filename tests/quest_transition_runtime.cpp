@@ -88,6 +88,7 @@ void reset_fixture() {
     inventory.values[0].mutationSerial = 1;
     account.characters[1].soid = kOtherCharacter;
     check(store::write_account(account), "seed account");
+    check(store::execute("DELETE FROM character_objective_values"), "clear fixture counters");
     check(store::execute("DELETE FROM unlocks"), "clear fixture unlocks");
     check(store::write_unlock(store::Bank::characterObjectValues, kQuestRow, kCurrentValue),
           "seed current stage");
@@ -233,6 +234,168 @@ void verify_runtime() {
     std::puts("PASS: State transition, stale guards, replay and SQLite rollback");
 }
 
+/** Checks ownership, missing values, stale counters and joined transaction rollback. */
+void verify_character_objectives() {
+    reset_fixture();
+    std::optional<std::int32_t> value;
+    check(store::read_character_objective(kCharacter, kValueSlot, value) && !value,
+          "new character has no implicit counter");
+    check(!store::write_character_objective(kSource, kValueSlot, 1),
+          "non-character owner rejected");
+    check(!store::write_character_objective(kCharacter, state::kUnlockValueSlotLimit, 1),
+          "out-of-range counter slot rejected");
+    check(!store::write_character_objective(kCharacter, kValueSlot, -1),
+          "negative credit rejected");
+
+    auto counted = contract();
+    counted.objectives[0].input = items::QuestPredicate::Input::characterCounter;
+    state::PendingQuestTransition pending{};
+    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+          "global override cannot supply character-earned credit");
+    check(store::write_character_objective(kOtherCharacter, kValueSlot, kMinimumValue),
+          "seed other character counter");
+    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+          "other character cannot supply credit");
+    check(store::write_character_objective(kCharacter, kValueSlot, 0)
+              && store::read_character_objective(kCharacter, kValueSlot, value) && value.has_value()
+              && *value == 0,
+          "explicit zero is not absent");
+    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+          "zero credit is incomplete");
+    check(store::write_character_objective(kCharacter, kValueSlot, kMinimumValue),
+          "seed completed first counter");
+    check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+          "own earned counter satisfies objective");
+    counted.objectiveCount = 2;
+    counted.objectives[1] = {kValueSlot + 1, 2, items::QuestPredicate::Input::characterCounter};
+    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+          "missing second earned counter refuses transition");
+    check(store::write_character_objective(kCharacter, kValueSlot + 1, 2), "seed second counter");
+    check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+          "both earned counters permit transition");
+    check(store::write_character_objective(kCharacter, kValueSlot + 1, 3), "change second input");
+    check(!state::commit_quest_transition(counted, pending), "stale second counter rejected");
+    check_unchanged();
+
+    {
+        store::Transaction outer;
+        check(outer.ready() && store::write_character_objective(kCharacter, kValueSlot + 1, 4),
+              "stage counter write in outer transaction");
+        check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear)
+                  && state::commit_quest_transition(counted, pending),
+              "stage replacement joins outer transaction");
+        // The caller's uncommitted transaction models a failed publication.
+    }
+    check_unchanged();
+    check(store::read_character_objective(kCharacter, kValueSlot + 1, value) && value == 3,
+          "outer rollback includes earned credit");
+    check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear)
+              && state::commit_quest_transition(counted, pending),
+          "commit with character counters");
+    check(store::read_character_objective(kCharacter, kValueSlot, value) && value == kMinimumValue,
+          "inventory rewrite preserves earned progress");
+
+    state::AccountState account{};
+    check(store::read_account(account), "read before roster reorder");
+    std::swap(account.characters[0], account.characters[1]);
+    check(store::write_account(account), "reorder roster");
+    check(store::read_character_objective(kCharacter, kValueSlot + 1, value) && value == 3,
+          "progress follows stable identity rather than roster slot");
+    account.characters[1].soid = kCharacter + 100;
+    check(store::write_account(account), "replace character identity");
+    check(!store::read_character_objective(kCharacter, kValueSlot, value),
+          "removed owner rejected");
+    check(store::read_character_objective(kCharacter + 100, kValueSlot, value) && !value,
+          "replacement character does not inherit progress");
+    check(store::read_character_objective(kOtherCharacter, kValueSlot, value)
+              && value == kMinimumValue,
+          "unrelated character progress survives removal");
+    std::puts("PASS: character counter isolation, explicit zero, stale inputs and joined rollback");
+}
+
+/**
+ * Exercises restart and migration against a new disposable database from the runner.
+ * @param path Unique scratch database supplied by the runner.
+ * @param schema Current schema resource.
+ * @param settingsSchema Account settings schema resource.
+ * @param settingsDefaults Account settings defaults resource.
+ */
+void verify_progress_restart(const char* path,
+                             const std::string& schema,
+                             const std::string& settingsSchema,
+                             const std::string& settingsDefaults) {
+    std::FILE* existing = nullptr;
+    const int opened = fopen_s(&existing, path, "rb");
+    if (existing != nullptr) {
+        std::fclose(existing);
+    }
+    check(opened != 0, "scratch database must not already exist");
+    store::shutdown();
+    const auto open = [&] {
+        return store::open(path,
+                           schema,
+                           "INSERT INTO account VALUES (1,1001,0);",
+                           settingsSchema,
+                           settingsDefaults);
+    };
+    check(open(), "open new scratch database");
+    reset_fixture();
+    check(store::write_character_objective(kCharacter, kValueSlot, 0), "persist explicit zero");
+    check(store::write_character_objective(kOtherCharacter, kValueSlot, kMinimumValue),
+          "persist other character progress");
+    store::shutdown();
+    check(open(), "reopen current schema");
+    std::optional<std::int32_t> value;
+    check(store::read_character_objective(kCharacter, kValueSlot, value) && value == 0,
+          "zero survives restart without character selection");
+    check(store::read_character_objective(kOtherCharacter, kValueSlot, value)
+              && value == kMinimumValue,
+          "earned progress survives restart");
+    check(store::execute("DROP TABLE character_objective_values; PRAGMA user_version=2;"),
+          "construct version-two fixture");
+    store::shutdown();
+    check(open(), "migrate version-two fixture");
+    check(store::read_character_objective(kCharacter, kValueSlot, value) && !value,
+          "migration does not invent earned progress");
+    state::AccountState account{};
+    check(store::read_account(account) && account.characterCount == 2
+              && account.characters[0].inventory.values[0].instanceSoid == kSource,
+          "migration preserves existing inventory and characters");
+    {
+        store::Statement version("PRAGMA user_version");
+        int current = 0;
+        check(version.step() == SQLITE_ROW && version.column(0, current) && current == 3,
+              "migration records schema three");
+    }
+    check(store::execute("DROP TABLE character_objective_values;"
+                         "DROP TABLE account_preferences; DROP TABLE account_controls;"
+                         "DROP TABLE account_audio; DROP TABLE account_display;"
+                         "DROP TABLE account_interface; DROP TABLE account_social;"
+                         "DROP TABLE account_key_bindings;"
+                         "ALTER TABLE items DROP COLUMN seen;"
+                         "ALTER TABLE profile_items DROP COLUMN seen; PRAGMA user_version=1;"),
+          "construct version-one fixture");
+    store::shutdown();
+    check(open() && store::read_account(account) && account.characterCount == 2
+              && account.characters[0].inventory.values[0].instanceSoid == kSource
+              && store::read_character_objective(kCharacter, kValueSlot, value) && !value,
+          "version-one migration reaches counter schema without losing inventory");
+    // A conflicting table must fail migration without advancing the version.
+    check(store::execute("PRAGMA user_version=2"), "construct conflicting migration fixture");
+    store::shutdown();
+    check(!open(), "conflicting migration refused");
+    sqlite3* inspect = nullptr;
+    check(sqlite3_open_v2(path, &inspect, SQLITE_OPEN_READONLY, nullptr) == SQLITE_OK,
+          "inspect refused migration read-only");
+    sqlite3_stmt* version = nullptr;
+    check(sqlite3_prepare_v2(inspect, "PRAGMA user_version", -1, &version, nullptr) == SQLITE_OK
+              && sqlite3_step(version) == SQLITE_ROW && sqlite3_column_int(version, 0) == 2,
+          "failed migration leaves version unchanged");
+    sqlite3_finalize(version);
+    sqlite3_close(inspect);
+    std::puts("PASS: disk reopen, version-one/two migrations, preservation and failed migration");
+}
+
 } // namespace
 
 namespace sunrise::state::build_data {
@@ -321,7 +484,12 @@ int main(int argc, char** argv) {
                       settingsDefaults),
           "new in-memory store");
     verify_runtime();
-    verify_quest_transition_reader(argc > 2 ? argv[2] : nullptr);
+    verify_character_objectives();
+    verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]
+                                                                                : nullptr);
+    if (argc > 3) {
+        verify_progress_restart(argv[3], schema, settingsSchema, settingsDefaults);
+    }
     store::shutdown();
     return 0;
 }
