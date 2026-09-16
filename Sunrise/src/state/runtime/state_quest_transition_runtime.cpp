@@ -17,9 +17,17 @@ using namespace runtime::detail;
 /** Pursuits have no equipment slot; the loadout resolver publishes them at slot zero. */
 constexpr std::uint8_t kPursuitEquipmentSlot = 0;
 
+/** @return The saved bank for a contract whose scope has already been validated. */
+[[nodiscard]] investment::store::Bank
+quest_bank(const items::QuestTransition& transition) noexcept {
+    return transition.scope == items::QuestInitialization::Scope::account
+               ? investment::store::Bank::objectiveValues
+               : investment::store::Bank::characterObjectValues;
+}
+
 /**
- * Resolves counted progress by character identity, never by an account-wide fallback.
- * @param transition Validated character quest contract.
+ * Resolves saved counters by their declared owner, never by a global override fallback.
+ * @param transition Validated quest contract and predicate sources.
  * @param account Locked account snapshot containing the selected character.
  * @param characterIndex Selected character's roster index.
  * @param family Receives resolved predicate inputs; used only on success.
@@ -42,6 +50,13 @@ constexpr std::uint8_t kPursuitEquipmentSlot = 0;
                     account.characters[characterIndex].soid, predicate.valueSlot, value)) {
                 return false;
             }
+        } else if (predicate.input == items::QuestPredicate::Input::accountCounter) {
+            std::int32_t counter = 0;
+            if (!investment::store::read_unlock(
+                    investment::store::Bank::objectiveValues, predicate.valueRow, counter)) {
+                return false;
+            }
+            value = counter;
         } else if (predicate.input == items::QuestPredicate::Input::characterPower) {
             std::int32_t power = 0;
             if (!equipment::light::resolution::character_light(account, characterIndex, power)) {
@@ -153,8 +168,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     std::int32_t currentValue = 0;
     items::Definition source{}, successor{};
     CharacterItemLocation location{};
-    if (!investment::store::read_unlock(
-            investment::store::Bank::characterObjectValues, transition.valueRow, currentValue)
+    if (!investment::store::read_unlock(quest_bank(transition), transition.valueRow, currentValue)
         || currentValue != transition.currentValue
         || !build_data::find_item_definition_index(transition.sourceItemIndex, source)
         || !build_data::find_item_definition_index(transition.successorItemIndex, successor)
@@ -296,7 +310,11 @@ bool preview_quest_transition(const items::QuestTransition& transition,
         return false;
     }
     after.characters[mutation.characterIndex] = rebuilt.afterCharacter;
-    afterUnlocks.characterObjectValues[transition.valueRow] = transition.nextValue;
+    if (transition.scope == items::QuestInitialization::Scope::account) {
+        afterUnlocks.objectiveValues[transition.valueRow] = transition.nextValue;
+    } else {
+        afterUnlocks.characterObjectValues[transition.valueRow] = transition.nextValue;
+    }
     return true;
 }
 
@@ -315,9 +333,8 @@ bool commit_quest_transition(const items::QuestTransition& transition,
     return transaction.ready()
            && preview_quest_transition(transition, mutation, after, afterUnlocks)
            && investment::store::write_account(after)
-           && investment::store::write_unlock(investment::store::Bank::characterObjectValues,
-                                              transition.valueRow,
-                                              transition.nextValue)
+           && investment::store::write_unlock(
+               quest_bank(transition), transition.valueRow, transition.nextValue)
            && transaction.commit();
 }
 

@@ -210,9 +210,8 @@ bool read_quest_transition(std::span<const std::byte> definition,
         return false;
     }
 
-    Scope scope = Scope::none;
-    if (!detail::map_quest_value_slot(valueMap, set.valueSlot, scope, candidate.valueRow)
-        || scope != Scope::character) {
+    if (!detail::map_quest_value_slot(
+            valueMap, set.valueSlot, candidate.scope, candidate.valueRow)) {
         return false;
     }
 
@@ -266,6 +265,17 @@ bool read_quest_transition(std::span<const std::byte> definition,
                 objectiveTable, objectiveRows, objectiveIndex, candidate.objectives[index])) {
             return false;
         }
+        auto& predicate = candidate.objectives[index];
+        if (candidate.scope == Scope::account
+            && predicate.input == Predicate::Input::characterCounter) {
+            Scope counterScope = Scope::none;
+            if (!detail::map_quest_value_slot(
+                    valueMap, predicate.valueSlot, counterScope, predicate.valueRow)
+                || counterScope != Scope::account) {
+                return false;
+            }
+            predicate.input = Predicate::Input::accountCounter;
+        }
     }
     candidate.objectiveCount = static_cast<std::size_t>(objectiveReferences.count);
     if (!state::build_data::items::valid(candidate)) {
@@ -298,6 +308,7 @@ read_prime_decryption_binding(std::span<const std::byte> definition,
     Array references{}, rows{};
     if (!read_quest_transition(
             definition, itemIndex, parent, itemCount, valueMap, objectiveTable, transition)
+        || transition.scope != Scope::character
         || !detail::read_quest_objectives(definition, block, references)
         || !find_array(objectiveTable, kObjectiveRowClass, rows)) {
         return {};

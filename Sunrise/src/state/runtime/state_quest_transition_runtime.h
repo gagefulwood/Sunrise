@@ -47,7 +47,7 @@ struct PendingQuestTransition {
 /**
  * The caller supplies a decoded installed-content contract, never a client-authored plan.
  * @param sourceInstanceSoid Owned current-stage item to replace.
- * @param transition Validated content metadata for one non-final character quest stage.
+ * @param transition Validated content metadata and save scope for one non-final quest stage.
  * @param mutation Receives the prepared replacement; cleared on failure.
  * @param policy Explicit authorization for unresolved completion effects.
  * @return False when ownership, conditions, saved progress or capacity prevent replacement.

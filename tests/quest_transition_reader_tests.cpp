@@ -81,6 +81,8 @@ constexpr std::size_t kSetMemberStride = 8, kSetMemberItemOffset = 4, kSetMember
 constexpr std::size_t kAccountMapDescriptor = 8, kCharacterMapDescriptor = 24;
 /** Native map rows store the destination slot before a reserved 16-bit field. */
 constexpr std::size_t kMapSlotOffset = 4, kMapReservedOffset = 6;
+/** Each native value-map row pairs a 32-bit hash with a 16-bit slot and reserved field. */
+constexpr std::size_t kValueMapRowStride = 8;
 /** Native objective rows contain an expression, special flags, a threshold and a modifier. */
 constexpr std::size_t kObjectiveExpressionOffset = 8, kObjectiveSpecialFlagsOffset = 0x28,
                       kObjectiveThresholdOffset = 0x30, kObjectiveModifierOffset = 0x38;
@@ -401,7 +403,31 @@ void verify_generated() {
     put(value.valueMap, kCharacterMapDescriptor + sizeof(std::uint64_t), std::int64_t{0});
     put_array(value.valueMap, kAccountMapDescriptor, kAccountMapHeader, 1, kFixtureMapRowClass);
     put(value.valueMap, kAccountMapRow + kMapSlotOffset, static_cast<std::int16_t>(kSetValueSlot));
-    rejected(value, "account-scoped quest value accepted");
+    check(read(value).scope
+              == sunrise::state::build_data::items::QuestInitialization::Scope::account,
+          "account-scoped quest value lost its scope");
+
+    put_array(value.objectiveTable,
+              kObjectiveRow + kObjectiveExpressionOffset,
+              kExpressionHeader,
+              1,
+              kInstructionClass);
+    rejected(value, "unmapped account counter accepted");
+    put_array(value.valueMap, kAccountMapDescriptor, kAccountMapHeader, 2, kFixtureMapRowClass);
+    put(value.valueMap,
+        kAccountMapRow + kValueMapRowStride + kMapSlotOffset,
+        static_cast<std::int16_t>(kObjectiveValueSlot));
+    check(read(value).objectives[0]
+              == QuestPredicate{kObjectiveValueSlot,
+                                kBooleanThreshold,
+                                QuestPredicate::Input::accountCounter,
+                                1},
+          "account counter did not retain its mapped row");
+    put_array(value.valueMap, kCharacterMapDescriptor, kCharacterMapHeader, 1, kFixtureMapRowClass);
+    put(value.valueMap,
+        kCharacterMapRow + kMapSlotOffset,
+        static_cast<std::int16_t>(kObjectiveValueSlot));
+    rejected(value, "ambiguous account counter mapping accepted");
 
     value = fixture();
     put(value.valueMap, kCharacterMapRow + kMapReservedOffset, std::uint16_t{1});
@@ -682,6 +708,58 @@ void verify_retained(const char* retainedDirectory) {
           "final completion accepted as a replacement");
 }
 
+/**
+ * Checks account-scoped visit mechanics without authorizing any vendor reply or effect.
+ * @param retainedDirectory Optional read-only installed-content fixture directory.
+ */
+void verify_retained_visits(const char* retainedDirectory) {
+    using Scope = sunrise::state::build_data::items::QuestInitialization::Scope;
+    struct Case {
+        const char* file;
+        std::uint16_t source, successor, stageRow, counterSlot, counterRow, completionEffect;
+    };
+    // Independent build-86657 item, saved-row and effect references for three first-stage visits.
+    constexpr Case cases[]{
+        {"81327AE5.bin", 15288, 15289, 5765, 13084, 5766, 11494},
+        {"813277B4.bin", 15162, 15163, 5701, 12910, 5702, 11097},
+        {"81327CAA.bin", 15392, 15393, 5858, 13213, 5859, 11814},
+    };
+    /** Build 86657's dense item table contains this many definitions. */
+    constexpr std::size_t kRetainedItemCount = 15424;
+    /** These authored first and second step identifiers are not earned counters. */
+    constexpr std::int32_t kFirstStep = 100, kSecondStep = 200;
+    /** Each retained visit objective completes at one. */
+    constexpr std::int32_t kVisitThreshold = 1;
+    const auto values = read_file(retainedDirectory, "81319320.bin");
+    const auto objectives = read_file(retainedDirectory, "81319344.bin");
+    for (const auto& entry : cases) {
+        const auto item = read_file(retainedDirectory, entry.file);
+        QuestTransition output{};
+        check(read_quest_transition(
+                  item, entry.source, item, kRetainedItemCount, values, objectives, output),
+              "retained account visit mechanics rejected");
+        QuestTransition expected{};
+        expected.sourceItemIndex = entry.source;
+        expected.successorItemIndex = entry.successor;
+        expected.currentValue = kFirstStep;
+        expected.nextValue = kSecondStep;
+        expected.valueRow = entry.stageRow;
+        expected.objectives[0] = {entry.counterSlot,
+                                  kVisitThreshold,
+                                  QuestPredicate::Input::accountCounter,
+                                  entry.counterRow};
+        expected.objectiveCount = 1;
+        expected.completionEffect = entry.completionEffect;
+        expected.scope = Scope::account;
+        check(output == expected, "retained account visit contract differs");
+        check(read_prime_decryption_binding(
+                  item, entry.source, item, kRetainedItemCount, values, objectives)
+                  == QuestCounterBinding{},
+              "account visit was classified as Prime decryption");
+    }
+    std::puts("PASS: three retained account visit-objective contracts");
+}
+
 } // namespace
 
 /** @param retainedDirectory Optional read-only fixture directory; null runs synthetic cases only.
@@ -692,6 +770,7 @@ void verify_quest_transition_reader(const char* retainedDirectory) {
     verify_binding();
     if (retainedDirectory != nullptr) {
         verify_retained(retainedDirectory);
+        verify_retained_visits(retainedDirectory);
         std::puts("PASS: retained stage metadata and unchanged first-acquisition contract");
     }
     std::puts("PASS: generated metadata, full predicates and unsupported cases");

@@ -29,6 +29,8 @@ constexpr std::uint32_t kSourceHash = 2001, kSuccessorHash = 2002;
 constexpr std::int32_t kCurrentValue = 300, kNextValue = 100;
 /** One saved character bank row and one global override slot belong to this fixture. */
 constexpr std::uint16_t kQuestRow = 12, kValueSlot = 17;
+/** The last account counter row also exercises indices beyond the character bank. */
+constexpr std::uint16_t kAccountCounterRow = state::unlocks::kObjectiveValueCapacity - 1;
 /** Test threshold crosses the 16-bit boundary to detect narrowed constants. */
 constexpr std::int32_t kMinimumValue = 70000;
 /** Fixture capacity is adjustable to test the State boundary's resolver rejection. */
@@ -464,6 +466,91 @@ void verify_runtime() {
     std::puts("PASS: State transition, stale guards, replay and SQLite rollback");
 }
 
+/** Checks account scope, saved counter inputs, stale plans and joined rollback. */
+void verify_account_transition() {
+    reset_fixture();
+    auto accountQuest = contract();
+    accountQuest.scope = items::QuestInitialization::Scope::account;
+    accountQuest.objectives[0] = {kValueSlot,
+                                  kMinimumValue,
+                                  items::QuestPredicate::Input::accountCounter,
+                                  kAccountCounterRow};
+    state::PendingQuestTransition pending{};
+    const auto prepareAccount = [&] {
+        return state::prepare_quest_transition(
+            kSource, accountQuest, pending, Policy::reconstructLinear);
+    };
+    check(!prepareAccount(), "character stage cannot satisfy account stage");
+    check(store::write_unlock(store::Bank::objectiveValues, kQuestRow, kCurrentValue),
+          "seed account stage");
+    check(!prepareAccount(), "global override cannot satisfy missing account counter");
+    check(store::write_unlock(store::Bank::objectiveValues, kAccountCounterRow, kMinimumValue - 1),
+          "seed incomplete account objective");
+    check(!prepareAccount(), "incomplete account counter refuses transition");
+    check(store::write_unlock(store::Bank::objectiveValues, kAccountCounterRow, kMinimumValue),
+          "seed complete account objective");
+    check(prepareAccount(), "prepare account transition");
+    check(store::write_unlock(store::Bank::objectiveValues, kAccountCounterRow, kMinimumValue + 1),
+          "change account input after prepare");
+    check(!state::commit_quest_transition(accountQuest, pending), "stale account input refused");
+    check(store::write_unlock(store::Bank::objectiveValues, kAccountCounterRow, kMinimumValue),
+          "restore fixture input");
+    check(prepareAccount(), "prepare account write failure");
+    check(store::execute("CREATE TEMP TRIGGER reject_account_stage BEFORE INSERT ON unlocks "
+                         "BEGIN SELECT RAISE(ABORT, 'forced account stage failure'); END"),
+          "install account-stage failure trigger");
+    check(!state::commit_quest_transition(accountQuest, pending),
+          "account-stage write failure refuses transition");
+    check(store::execute("DROP TRIGGER reject_account_stage"), "remove account-stage trigger");
+    std::int32_t stage = 0;
+    check(store::read_unlock(store::Bank::objectiveValues, kQuestRow, stage)
+              && stage == kCurrentValue
+              && store::account().characters[0].inventory.values[0].instanceSoid == kSource,
+          "failed account-stage write rolls back inventory");
+    check(prepareAccount(), "prepare account preview");
+    state::AccountState after{};
+    state::unlocks::Table unlocks{};
+    check(state::preview_quest_transition(accountQuest, pending, after, unlocks)
+              && unlocks.objectiveValues[kQuestRow] == kNextValue
+              && unlocks.characterObjectValues[kQuestRow] == kCurrentValue
+              && unlocks.objectiveValues[kAccountCounterRow] == kMinimumValue,
+          "preview changes only the account stage bank");
+    auto altered = accountQuest;
+    altered.scope = items::QuestInitialization::Scope::character;
+    check(!state::commit_quest_transition(altered, pending), "changed scope refused");
+    check(prepareAccount(), "prepare account rollback");
+    {
+        store::Transaction publication;
+        check(publication.ready() && state::commit_quest_transition(accountQuest, pending),
+              "provisional account transition");
+        // A failed publication leaves the outer transaction uncommitted.
+    }
+    std::int32_t saved = 0;
+    check(store::read_unlock(store::Bank::objectiveValues, kQuestRow, saved)
+              && saved == kCurrentValue
+              && store::account().characters[0].inventory.values[0].instanceSoid == kSource,
+          "account stage and inventory roll back together");
+    check(prepareAccount(), "prepare account success");
+    auto replay = pending;
+    check(state::commit_quest_transition(accountQuest, pending)
+              && store::read_unlock(store::Bank::objectiveValues, kQuestRow, saved)
+              && saved == kNextValue
+              && store::account().characters[0].inventory.values[0].definitionHash
+                     == kSuccessorHash,
+          "account stage and inventory commit together");
+    check(store::read_unlock(store::Bank::characterObjectValues, kQuestRow, saved)
+              && saved == kCurrentValue,
+          "account transition preserves character stage");
+    check(!state::commit_quest_transition(accountQuest, replay), "account replay refused");
+    altered = accountQuest;
+    altered.scope = items::QuestInitialization::Scope::none;
+    check(!items::valid(altered), "missing quest scope refused");
+    altered = accountQuest;
+    altered.objectives[0].valueRow = state::unlocks::kObjectiveValueCapacity;
+    check(!items::valid(altered), "out-of-range account counter refused");
+    std::puts("PASS: account-scoped transitions, saved inputs, stale guards and rollback");
+}
+
 /** Checks ownership, missing values, stale counters and joined transaction rollback. */
 void verify_character_objectives() {
     reset_fixture();
@@ -733,6 +820,7 @@ int main(int argc, char** argv) {
           "new in-memory store");
     verify_runtime();
     verify_automatic_power_gate();
+    verify_account_transition();
     verify_character_objectives();
     verify_objective_publication();
     verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]

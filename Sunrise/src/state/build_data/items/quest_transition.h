@@ -25,11 +25,13 @@ inline constexpr std::uint16_t kQuestCharacterPowerSlot = 462;
 
 /** One supported objective requires an explicit value slot to reach a signed minimum. */
 struct QuestPredicate {
-    /** Earned counters and derived Power belong to the selected character, not global overrides. */
-    enum class Input : std::uint8_t { family5, characterCounter, characterPower };
+    /** Saved counters use their declared owner; Power belongs to the selected character. */
+    enum class Input : std::uint8_t { family5, characterCounter, characterPower, accountCounter };
     std::uint16_t valueSlot{};
     std::int32_t minimumValue{};
     Input input{Input::family5};
+    /** Only account counters use a saved bank row; the other inputs use valueSlot directly. */
+    std::uint16_t valueRow{};
 
     bool operator==(const QuestPredicate&) const = default;
 };
@@ -44,6 +46,8 @@ struct QuestTransition {
     std::array<QuestPredicate, kQuestObjectiveCapacity> objectives{};
     std::size_t objectiveCount{};
     std::uint16_t completionEffect{kUnavailableQuestCompletionEffect};
+    /** The quest-set value map selects the account or character save bank. */
+    QuestInitialization::Scope scope{QuestInitialization::Scope::character};
 
     bool operator==(const QuestTransition&) const = default;
 };
@@ -60,7 +64,8 @@ struct QuestTransition {
         || quest.currentValue == kUnsetQuestValue || quest.currentValue == kInvalidQuestInitialValue
         || quest.nextValue == kUnsetQuestValue || quest.nextValue == kInvalidQuestInitialValue
         || quest.currentValue == quest.nextValue
-        || quest.valueRow >= unlocks::kCharacterObjectValueCapacity || quest.objectiveCount == 0
+        || !valid(QuestInitialization{quest.currentValue, quest.valueRow, quest.scope})
+        || quest.scope == QuestInitialization::Scope::none || quest.objectiveCount == 0
         || quest.objectiveCount > quest.objectives.size()) {
         return false;
     }
@@ -70,7 +75,11 @@ struct QuestTransition {
              && (predicate.valueSlot >= kQuestValueSlotLimit
                  || (predicate.input != QuestPredicate::Input::family5
                      && predicate.input != QuestPredicate::Input::characterCounter
-                     && predicate.input != QuestPredicate::Input::characterPower)
+                     && predicate.input != QuestPredicate::Input::characterPower
+                     && predicate.input != QuestPredicate::Input::accountCounter)
+                 || (predicate.input == QuestPredicate::Input::accountCounter
+                         ? predicate.valueRow >= unlocks::kObjectiveValueCapacity
+                         : predicate.valueRow != 0)
                  || (predicate.input == QuestPredicate::Input::characterPower
                      && predicate.valueSlot != kQuestCharacterPowerSlot)))
             || (index >= quest.objectiveCount && predicate != QuestPredicate{})) {
