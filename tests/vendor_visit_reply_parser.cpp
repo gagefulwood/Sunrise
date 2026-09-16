@@ -214,7 +214,8 @@ int main(int argc, char** argv) {
               investmentRow + parser::kInteractionRetirementDescriptor,
               std::uint64_t{});
         write(overflowInvestment,
-              investmentRow + parser::kInteractionRetirementDescriptor + 8,
+              investmentRow + parser::kInteractionRetirementDescriptor
+                  + tables::kUnlockExpressionPointerOffset,
               std::int64_t{});
         repoint(overflowInvestment,
                 investmentRow + parser::kInteractionReplyDescriptor,
