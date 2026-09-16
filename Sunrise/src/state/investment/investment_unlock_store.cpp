@@ -273,6 +273,63 @@ bool write_family5(const Family5State& value) noexcept {
     return transaction.commit();
 }
 
+/**
+ * A missing counter is distinct from saved zero and never borrows another owner's value.
+ * @param characterSoid Stable character identity, not its roster position.
+ * @param slot Authored objective value slot.
+ * @param value Empty on absence or failure; receives a saved nonnegative counter otherwise.
+ * @return False for an invalid owner, slot, stored value or database error.
+ */
+bool read_character_objective(std::uint64_t characterSoid,
+                              std::uint16_t slot,
+                              std::optional<std::int32_t>& value) noexcept {
+    const std::lock_guard lock(g_mutex);
+    value.reset();
+    if (characterSoid == 0 || slot >= kUnlockValueSlotLimit) {
+        return false;
+    }
+    Statement owner("SELECT soid FROM characters WHERE soid=?");
+    if (!owner.parameters(characterSoid) || owner.step() != SQLITE_ROW) {
+        return false;
+    }
+    Statement row("SELECT value FROM character_objective_values WHERE character_soid=? AND slot=?");
+    if (!row.parameters(characterSoid, slot)) {
+        return false;
+    }
+    const int result = row.step();
+    if (result == SQLITE_DONE) {
+        return true;
+    }
+    std::int32_t saved = 0;
+    if (result != SQLITE_ROW || !row.column(0, saved) || saved < 0 || row.step() != SQLITE_DONE) {
+        return false;
+    }
+    value = saved;
+    return true;
+}
+
+/**
+ * Objective writes join the caller's transaction and preserve explicit zero counters.
+ * @param characterSoid Stable identity of an existing character.
+ * @param slot Authored objective value slot.
+ * @param value Nonnegative absolute progress; this function does not authorize earned credit.
+ * @return False when validation or the single-row write fails.
+ */
+bool write_character_objective(std::uint64_t characterSoid,
+                               std::uint16_t slot,
+                               std::int32_t value) noexcept {
+    const std::lock_guard lock(g_mutex);
+    if (characterSoid == 0 || slot >= kUnlockValueSlotLimit || value < 0) {
+        return false;
+    }
+    Statement row("INSERT INTO character_objective_values (character_soid,slot,value) "
+                  "SELECT soid,?,? FROM characters WHERE soid=? "
+                  "ON CONFLICT(character_soid,slot) DO UPDATE SET value=excluded.value "
+                  "RETURNING value");
+    return row.parameters(slot, value, characterSoid) && row.step() == SQLITE_ROW
+           && row.step() == SQLITE_DONE;
+}
+
 /** Ownership rows use stable positions because their manifest handles depend on order. */
 bool read_entitlements(entitlements::Table& output) noexcept {
     const std::lock_guard lock(g_mutex);

@@ -17,6 +17,58 @@ using namespace runtime::detail;
 constexpr std::uint8_t kPursuitEquipmentSlot = 0;
 
 /**
+ * Resolves counted progress by character identity, never by an account-wide fallback.
+ * @param transition Validated character quest contract.
+ * @param characterSoid Selected character's stable identity.
+ * @param family Receives resolved predicate inputs; used only on success.
+ * @return False for absent, duplicate or unreadable inputs.
+ */
+[[nodiscard]] bool resolve_inputs(const items::QuestTransition& transition,
+                                  std::uint64_t characterSoid,
+                                  Family5State& family) noexcept {
+    Family5State global{};
+    family = {};
+    if (!investment::store::read_family5(global)) {
+        return false;
+    }
+    for (std::size_t index = 0; index < transition.objectiveCount; ++index) {
+        const auto& predicate = transition.objectives[index];
+        std::optional<std::int32_t> value;
+        if (predicate.input == items::QuestPredicate::Input::characterCounter) {
+            if (!investment::store::read_character_objective(
+                    characterSoid, predicate.valueSlot, value)) {
+                return false;
+            }
+        } else {
+            for (std::size_t row = 0; row < global.valueCount; ++row) {
+                if (global.values[row].slot == predicate.valueSlot) {
+                    if (value.has_value()) {
+                        return false;
+                    }
+                    value = global.values[row].value;
+                }
+            }
+        }
+        if (!value.has_value()) {
+            return false;
+        }
+        bool present = false;
+        for (std::size_t row = 0; row < family.valueCount; ++row) {
+            if (family.values[row].slot == predicate.valueSlot) {
+                if (family.values[row].value != *value) {
+                    return false;
+                }
+                present = true;
+            }
+        }
+        if (!present) {
+            family.values[family.valueCount++] = {predicate.valueSlot, *value};
+        }
+    }
+    return true;
+}
+
+/**
  * A pursuit replacement cannot share a definition with another owned quest row.
  * @param character Selected character whose inventory was validated.
  * @param sourceHash Current-stage definition hash.
@@ -76,8 +128,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
 
     AccountState before{};
     Family5State family{};
-    if (!investment::store::read_account(before) || !account::valid(before)
-        || !investment::store::read_family5(family) || !items::complete(transition, family)) {
+    if (!investment::store::read_account(before) || !account::valid(before)) {
         return false;
     }
     const auto characterIndex = selected_character_index(before);
@@ -85,6 +136,10 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         return false;
     }
     const auto& character = before.characters[characterIndex];
+    if (!resolve_inputs(transition, character.soid, family)
+        || !items::complete(transition, family)) {
+        return false;
+    }
     std::int32_t currentValue = 0;
     items::Definition source{}, successor{};
     CharacterItemLocation location{};

@@ -17,14 +17,17 @@ inline constexpr std::uint16_t kUnavailableQuestItemIndex = 0xFFFFU;
 /** The reserved all-one index leaves this many usable 16-bit quest item indices. */
 inline constexpr std::size_t kQuestItemIndexCapacity = kUnavailableQuestItemIndex;
 /** Authored quest value slots fit the nonnegative half of a signed 16-bit mapping. */
-inline constexpr std::uint16_t kQuestValueSlotLimit = 0x8000U;
+inline constexpr std::uint16_t kQuestValueSlotLimit = kUnlockValueSlotLimit;
 /** Transition evaluation accepts at most sixteen objective references. */
 inline constexpr std::size_t kQuestObjectiveCapacity = 16;
 
 /** One supported objective requires an explicit value slot to reach a signed minimum. */
 struct QuestPredicate {
+    /** Reconstructed character quests own their counted progress; comparisons use global inputs. */
+    enum class Input : std::uint8_t { family5, characterCounter };
     std::uint16_t valueSlot{};
     std::int32_t minimumValue{};
+    Input input{Input::family5};
 
     bool operator==(const QuestPredicate&) const = default;
 };
@@ -61,7 +64,10 @@ struct QuestTransition {
     }
     for (std::size_t index = 0; index < quest.objectives.size(); ++index) {
         const QuestPredicate& predicate = quest.objectives[index];
-        if ((index < quest.objectiveCount && predicate.valueSlot >= kQuestValueSlotLimit)
+        if ((index < quest.objectiveCount
+             && (predicate.valueSlot >= kQuestValueSlotLimit
+                 || (predicate.input != QuestPredicate::Input::family5
+                     && predicate.input != QuestPredicate::Input::characterCounter)))
             || (index >= quest.objectiveCount && predicate != QuestPredicate{})) {
             return false;
         }
@@ -70,9 +76,9 @@ struct QuestTransition {
 }
 
 /**
- * Checks every objective against one unambiguous explicit Family-5 value.
+ * Checks every objective against one unambiguous resolved input value.
  * @param quest Validated transition metadata; its completion effect is not an eligibility gate.
- * @param family Immutable Family-5 state snapshot.
+ * @param family Explicit values; the caller must resolve character counters for their owner.
  * @return False for malformed state, missing or duplicate values, or an unmet objective.
  */
 [[nodiscard]] inline bool complete(const QuestTransition& quest,

@@ -78,7 +78,8 @@ constexpr std::int32_t kBooleanObjectiveThreshold = 1;
         return false;
     }
     if (program.count == kCounterInstructionCount) {
-        output = {static_cast<std::uint16_t>(valueSlot), threshold};
+        output = {
+            static_cast<std::uint16_t>(valueSlot), threshold, Predicate::Input::characterCounter};
         return true;
     }
 

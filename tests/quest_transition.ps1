@@ -42,8 +42,9 @@ try {
     $questCommand = "`"$questVcVars`" >nul && cl /nologo /std:c++20 /EHsc /O2 /Gy /W4 /WX /utf-8 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I`"$questSource`" /external:I`"$questSqlite`" /external:W0 " + ($questSources -join ' ') + ' sqlite3.obj /Fequest_transition_tests.exe /link /OPT:REF /STACK:8388608'
     & cmd.exe /d /s /c $questCommand
     if ($LASTEXITCODE -ne 0) { throw 'Quest transition test build failed.' }
-    $questArguments = @((Join-Path $questRoot 'Sunrise/resources/database'))
-    if ($RetainedDirectory) { $questArguments += $RetainedDirectory }
+    $questScratch = Join-Path $questBuild ('objective-progress-' + [guid]::NewGuid().ToString('N') + '.sqlite3')
+    $questRetained = if ($RetainedDirectory) { $RetainedDirectory } else { '-' }
+    $questArguments = @((Join-Path $questRoot 'Sunrise/resources/database'), $questRetained, $questScratch)
     & (Join-Path $questBuild 'quest_transition_tests.exe') @questArguments
     if ($LASTEXITCODE -ne 0) { throw 'Quest transition checks failed.' }
 } finally {
