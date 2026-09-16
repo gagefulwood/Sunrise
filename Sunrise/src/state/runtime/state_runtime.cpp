@@ -370,16 +370,20 @@ bool new_bap_session(BapState& output) noexcept {
     return true;
 }
 
-/** Copies one complete evaluated content state with build-derived catalyst overrides. */
+/**
+ * Builds one publication snapshot without saving character counters into global overrides.
+ * @param output Receives the complete snapshot; unchanged on failure.
+ * @return False when database reads or either override projection fails.
+ */
 bool investment_snapshot(InvestmentState& output) noexcept {
-    investment::store::g_mutex.lock();
+    const std::lock_guard lock(investment::store::g_mutex);
     InvestmentState snapshot;
-    const bool loaded = investment::store::read_family5(snapshot.family5);
-    investment::store::g_mutex.unlock();
-    if (!loaded || !build_data::complete_exotic_catalyst_investment(snapshot.family5)) {
+    if (!investment::store::read_family5(snapshot.family5)
+        || !build_data::complete_exotic_catalyst_investment(snapshot.family5)
+        || !investment::store::project_character_objectives(snapshot.family5)) {
         core::log::write(core::log::Channel::state,
                          core::log::Level::warn,
-                         "ev=investment stage=snapshot result=fail reason=catalyst");
+                         "ev=investment stage=snapshot result=fail reason=overrides");
         return false;
     }
     output = snapshot;

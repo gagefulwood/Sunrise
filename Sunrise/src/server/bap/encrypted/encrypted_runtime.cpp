@@ -524,10 +524,12 @@ bool consume(Session& session,
             if (resyncsCommittedAccount) {
                 bap::arm_account_resync_everywhere();
             }
+            if (outcome.selectedCharacterChanged || artifactPurchase || outcome.hasArtifactReset) {
+                session.investmentRefreshArmed = true;
+            }
             if (artifactPurchase || outcome.hasArtifactReset) {
                 // Artifact overrides live in Family 5, so they need their own refresh. A record
                 // claim does not: its Family-4 replacement rearms the client rebuild.
-                session.artifactRefreshArmed = true;
                 session.artifactFamily4RefreshDueTick =
                     GetTickCount64() + kArtifactFamily4RefreshDelayMs;
                 session.artifactFamily4RefreshArmed = true;

@@ -39,6 +39,8 @@ void shutdown() noexcept;
 void set_sign_in_time(std::uint64_t seconds) noexcept;
 [[nodiscard]] bool read_family5(Family5State& output) noexcept;
 [[nodiscard]] bool write_family5(const Family5State& value) noexcept;
+/** Projection is for publication only; never save it through write_family5(). */
+[[nodiscard]] bool project_character_objectives(Family5State& output) noexcept;
 /**
  * Reads one character-owned counter without substituting an account override.
  * @param characterSoid Stable identity of an existing character.

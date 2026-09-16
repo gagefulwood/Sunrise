@@ -185,6 +185,9 @@ struct ServiceOutcome {
 
     bool hasSelectCharacter{};
 
+    /** Selection can commit even when its Family-4 publication falls back to resync. */
+    bool selectedCharacterChanged{};
+
     /** One service owns at most one independently versioned, exact-sized transaction. */
 
     using Transaction = std::variant<std::monostate,

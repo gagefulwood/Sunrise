@@ -10,6 +10,8 @@ namespace sunrise::state {
 inline constexpr std::size_t kUnlockOverrideCapacity = 100;
 /** Authored value slots fit the nonnegative half of a signed 16-bit mapping. */
 inline constexpr std::uint16_t kUnlockValueSlotLimit = 0x8000U;
+/** Family-5 value overrides index a native buffer with 15500 entries. */
+inline constexpr std::uint16_t kFamily5ValueSlotLimit = 15500;
 
 /** One logical unlock-flag value stored by slot. */
 struct UnlockFlagOverride {

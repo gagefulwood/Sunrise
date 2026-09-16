@@ -321,8 +321,8 @@ struct Session {
     std::int32_t pendingSeasonalExperienceAmount{};
     std::uint32_t pendingSeasonalExperienceMutationSerial{};
     bool authenticated{};
-    /** Owes one family-five snapshot for the unlock overrides an artifact change moved. */
-    bool artifactRefreshArmed{};
+    /** Owes a Family-5 replacement after selection or artifact overrides change. */
+    bool investmentRefreshArmed{};
     bool artifactFamily4RefreshArmed{};
     std::uint64_t artifactFamily4RefreshDueTick{};
     state::ArtifactResetResult artifactResetRefresh{};

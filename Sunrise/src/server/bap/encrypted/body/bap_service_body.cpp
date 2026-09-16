@@ -676,6 +676,7 @@ bool process(const ServiceRoute& route,
             }
         }
         if (webOutcome.hasSelectedCharacter && webOutcome.selectedCharacterChanged) {
+            outcome.selectedCharacterChanged = true;
             auto* selectCharacter = emplace_transaction<queuez::SelectCharacter>(outcome);
             if (selectCharacter != nullptr
                 && queuez::stage_select_character(

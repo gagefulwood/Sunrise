@@ -493,8 +493,7 @@ selected_character(const state::AccountState& account) noexcept {
 }
 
 /**
- * Publishes the account unlock overrides an artifact purchase or reset changed.
- * The arm is spent before the frame is built, so one committed change owes exactly one frame.
+ * Publishes changed investment overrides; failed frames leave the refresh armed.
  * @param session Auth, nonce and queuez state owned by the connection.
  * @param scratch Transform buffers owned by the lock.
  * @param response Whole-frame storage owned by the caller.
@@ -502,15 +501,14 @@ selected_character(const state::AccountState& account) noexcept {
  * @param touchesScratch Set before any scratch buffer is used.
  * @return True when the family-five snapshot is published.
  */
-[[nodiscard]] bool consume_artifact_family5_refresh(Session& session,
-                                                    Scratch& scratch,
-                                                    std::span<std::byte> response,
-                                                    std::size_t& written,
-                                                    bool& touchesScratch) noexcept {
-    if (!session.artifactRefreshArmed) {
+[[nodiscard]] bool consume_investment_refresh(Session& session,
+                                              Scratch& scratch,
+                                              std::span<std::byte> response,
+                                              std::size_t& written,
+                                              bool& touchesScratch) noexcept {
+    if (!session.investmentRefreshArmed) {
         return false;
     }
-    session.artifactRefreshArmed = false;
     if (session.queuez.family5Version == (std::numeric_limits<std::int32_t>::max)()) {
         core::log::write(core::log::Channel::server,
                          core::log::Level::warn,
@@ -534,6 +532,7 @@ selected_character(const state::AccountState& account) noexcept {
     middleware::secure_channel::advance_nonce(nextSendNonce);
     session.sendNonce = nextSendNonce;
     session.queuez.family5Version = version;
+    session.investmentRefreshArmed = false;
     // The Client rebuilds its evaluated unlock state only on the next armed freshness verdict.
     bap::notify_investment_publication();
     return true;
@@ -656,10 +655,9 @@ bool consume_deferred(Session& session,
     if (!session.authenticated) {
         return false;
     }
-    // The overrides go first: they are what the purchased mod unlocks, and the Family-4
-    // companion waits on its own delay.
-    if (consume_artifact_family5_refresh(session, scratch, response, written, touchesScratch)) {
-        return true;
+    // Dependent publications wait until the current character's overrides fit the frame.
+    if (session.investmentRefreshArmed) {
+        return consume_investment_refresh(session, scratch, response, written, touchesScratch);
     }
     if (consume_artifact_family4_refresh(session, scratch, response, written, touchesScratch)) {
         return true;
