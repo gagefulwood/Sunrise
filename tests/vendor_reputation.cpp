@@ -7,6 +7,7 @@
 #include "state/build_data/runtime.h"
 #include "state/build_data/vendors/vendor_catalog.h"
 #include "state/investment/store_internal.h"
+#include "state/runtime/runtime.h"
 #include "state/runtime/state_vendor_reputation_runtime.h"
 
 namespace {
@@ -466,6 +467,10 @@ bool find_progression_slots(progressions::Scope scope,
 } // namespace sunrise::state::build_data
 
 namespace sunrise::state {
+/** Unused quest-completion commits must not read live investment state in this fixture. */
+bool investment_snapshot(InvestmentState&) noexcept {
+    return false;
+}
 /** Unrelated profile exchange code reads the same disposable store. */
 AccountState account_snapshot() noexcept {
     return investment::store::account();
