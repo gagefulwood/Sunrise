@@ -119,6 +119,130 @@ constexpr std::uint16_t kUnavailableValueMapRow = 0xFFFFU;
 
 } // namespace
 
+namespace detail {
+
+/**
+ * Reads the objective block and its bounded 16-bit reference array.
+ * @param definition Item definition bytes.
+ * @param blockOffset Receives the objective block payload offset; use only on success.
+ * @param objectives Receives the objective-reference array; use only on success.
+ * @return False for an absent, short, or wrong-class block or array.
+ */
+bool read_quest_objectives(std::span<const std::byte> definition,
+                           std::size_t& blockOffset,
+                           Array& objectives) noexcept {
+    blockOffset = 0;
+    objectives = {};
+    return definition.size() >= kMinimumQuestDefinitionSize
+           && block(definition, kItemObjectiveBlockOffset, kItemObjectiveBlockClass, blockOffset)
+           && array(definition,
+                    blockOffset,
+                    kObjectiveReferenceArrayClass,
+                    kObjectiveReferenceStride,
+                    objectives);
+}
+
+/**
+ * Reads one mode-1 quest set whose members fit the item table.
+ * @param parent Quest-set owner bytes.
+ * @param itemCount Exclusive bound for member item indices and the member count.
+ * @param set Receives the set bounds and value slot; use only on success.
+ * @return False for malformed bounds, an unsupported mode, or an invalid slot.
+ */
+bool read_quest_set(std::span<const std::byte> parent,
+                    std::size_t itemCount,
+                    QuestSet& set) noexcept {
+    set = {};
+    std::size_t blockOffset = 0;
+    std::uint8_t mode = 0;
+    return parent.size() >= kMinimumQuestDefinitionSize
+           && block(parent, kItemQuestSetBlockOffset, kQuestSetBlockClass, blockOffset)
+           && read(parent, blockOffset + kQuestSetModeOffset, mode)
+           && mode == kSupportedQuestSetMode
+           && read(parent, blockOffset + kQuestSetValueSlotOffset, set.valueSlot)
+           && set.valueSlot < kUnlockSlotLimit
+           && array(parent, blockOffset, kQuestSetMemberClass, kQuestSetMemberStride, set.members)
+           && set.members.count <= itemCount;
+}
+
+/**
+ * Reads one quest-set member and validates its item index and reserved field.
+ * @param parent Quest-set owner bytes.
+ * @param set Parsed quest-set bounds.
+ * @param index Member ordinal.
+ * @param itemCount Exclusive bound for member item indices.
+ * @param value Receives the signed step identifier; use only on success.
+ * @param item Receives the item-table index; use only on success.
+ * @return False when the member is absent, truncated, reserved, or out of range.
+ */
+bool read_quest_member(std::span<const std::byte> parent,
+                       const QuestSet& set,
+                       std::size_t index,
+                       std::size_t itemCount,
+                       std::int32_t& value,
+                       std::uint16_t& item) noexcept {
+    value = 0;
+    item = kUnavailableQuestParent;
+    std::size_t at = 0;
+    std::uint16_t reserved = 0;
+    return element_offset(
+               set.members.dataOffset, set.members.count, kQuestSetMemberStride, index, at)
+           && read(parent, at + kQuestSetMemberValueOffset, value)
+           && read(parent, at + kQuestSetMemberItemOffset, item)
+           && read(parent, at + kQuestSetMemberReservedOffset, reserved) && reserved == 0
+           && item < itemCount;
+}
+
+/**
+ * Resolves one unique quest-set slot across every value map.
+ * @param valueMap Blob containing all four unlock value maps.
+ * @param slot Authored quest-set value slot.
+ * @param scope Receives the supported save bank; use only on success.
+ * @param row Receives the row in that bank; use only on success.
+ * @return False for malformed maps, no match, duplicate matches, or an unsupported bank.
+ */
+bool map_quest_value_slot(std::span<const std::byte> valueMap,
+                          std::uint16_t slot,
+                          Quest::Scope& scope,
+                          std::uint16_t& row) noexcept {
+    scope = Quest::Scope::none;
+    row = 0;
+    std::size_t matches = 0;
+    for (const std::size_t descriptor : {kAccountValueMapDescriptor,
+                                         kCharacterValueMapDescriptor,
+                                         kThirdValueMapDescriptor,
+                                         kFourthValueMapDescriptor}) {
+        Array rows{};
+        if (!find_optional_array_at(valueMap, descriptor, rows) || rows.dataOffset > valueMap.size()
+            || rows.count > (valueMap.size() - rows.dataOffset) / kUnlockMapRowStride) {
+            return false;
+        }
+        for (std::uint64_t index = 0; index < rows.count; ++index) {
+            const auto at = rows.dataOffset + static_cast<std::size_t>(index) * kUnlockMapRowStride;
+            std::int16_t mappedSlot = -1;
+            std::uint16_t reserved = 0;
+            if (!read(valueMap, at + kUnlockMapDestinationSlotOffset, mappedSlot)
+                || !read(valueMap, at + kValueMapReservedOffset, reserved)) {
+                return false;
+            }
+            if (mappedSlot < 0 || static_cast<std::uint16_t>(mappedSlot) != slot) {
+                continue;
+            }
+            if (reserved != 0 || ++matches != 1 || index >= kUnavailableValueMapRow
+                || (descriptor != kAccountValueMapDescriptor
+                    && descriptor != kCharacterValueMapDescriptor)) {
+                return false;
+            }
+            row = static_cast<std::uint16_t>(index);
+            scope = descriptor == kAccountValueMapDescriptor ? Quest::Scope::account
+                                                             : Quest::Scope::character;
+        }
+    }
+    return matches == 1;
+}
+
+} // namespace detail
+
 /**
  * Only an objective-bearing pursuit can name a quest-set owner.
  * @param definition Item definition bytes, including its nested blocks.
@@ -129,15 +253,9 @@ std::uint16_t quest_parent(std::span<const std::byte> definition) noexcept {
     std::size_t objective = 0;
     std::uint16_t parent = kUnavailableQuestParent;
     Array objectives{};
-    if (definition.size() < kMinimumQuestDefinitionSize
-        || !read(definition, kBucketIdOffset, bucket)
+    if (!read(definition, kBucketIdOffset, bucket)
         || bucket != state::build_data::items::kPursuitBucketId
-        || !block(definition, kItemObjectiveBlockOffset, kItemObjectiveBlockClass, objective)
-        || !array(definition,
-                  objective,
-                  kObjectiveReferenceArrayClass,
-                  kObjectiveReferenceStride,
-                  objectives)
+        || !detail::read_quest_objectives(definition, objective, objectives)
         || !read(definition, objective + kObjectiveParentItemOffset, parent)) {
         return kUnavailableQuestParent;
     }
@@ -158,19 +276,12 @@ Quest read_quest_initialization(std::span<const std::byte> definition,
                                 std::span<const std::byte> parent,
                                 std::size_t itemCount,
                                 std::span<const std::byte> valueMap) noexcept {
-    std::size_t set = 0;
     std::size_t unlock = 0;
-    std::uint8_t mode = 0;
-    std::uint16_t slot = 0;
-    Array members{}, flags{};
+    Array flags{};
+    detail::QuestSet set{};
     const auto parentIndex = quest_parent(definition);
     if (itemIndex >= itemCount || parentIndex >= itemCount
-        || parent.size() < kMinimumQuestDefinitionSize
-        || !block(parent, kItemQuestSetBlockOffset, kQuestSetBlockClass, set)
-        || !read(parent, set + kQuestSetModeOffset, mode) || mode != kSupportedQuestSetMode
-        || !read(parent, set + kQuestSetValueSlotOffset, slot) || slot >= kUnlockSlotLimit
-        || !array(parent, set, kQuestSetMemberClass, kQuestSetMemberStride, members)
-        || members.count > itemCount) {
+        || !detail::read_quest_set(parent, itemCount, set)) {
         return {};
     }
     std::int64_t unlockRelative = 0;
@@ -206,14 +317,10 @@ Quest read_quest_initialization(std::span<const std::byte> definition,
     }
     Quest quest{};
     std::size_t matches = 0;
-    for (std::size_t i = 0; i < members.count; ++i) {
-        const auto at = members.dataOffset + i * kQuestSetMemberStride;
+    for (std::size_t i = 0; i < set.members.count; ++i) {
         std::int32_t value = 0;
-        std::uint16_t member = 0, reserved = 0;
-        if (!read(parent, at + kQuestSetMemberValueOffset, value)
-            || !read(parent, at + kQuestSetMemberItemOffset, member)
-            || !read(parent, at + kQuestSetMemberReservedOffset, reserved) || reserved != 0
-            || member >= itemCount) {
+        std::uint16_t member = 0;
+        if (!detail::read_quest_member(parent, set, i, itemCount, value, member)) {
             return {};
         }
         if (member == itemIndex) {
@@ -230,42 +337,10 @@ Quest read_quest_initialization(std::span<const std::byte> definition,
         return {};
     }
 
-    // A slot must match once across all maps, including maps with no supported save bank.
-    matches = 0;
-    for (const std::size_t descriptor : {kAccountValueMapDescriptor,
-                                         kCharacterValueMapDescriptor,
-                                         kThirdValueMapDescriptor,
-                                         kFourthValueMapDescriptor}) {
-        Array rows{};
-        if (!find_optional_array_at(valueMap, descriptor, rows) || rows.dataOffset > valueMap.size()
-            || rows.count > (valueMap.size() - rows.dataOffset) / kUnlockMapRowStride) {
-            return {};
-        }
-        for (std::size_t i = 0; i < rows.count; ++i) {
-            std::int16_t mappedSlot = -1;
-            std::uint16_t reserved = 0;
-            if (!read(valueMap,
-                      rows.dataOffset + i * kUnlockMapRowStride + kUnlockMapDestinationSlotOffset,
-                      mappedSlot)
-                || !read(valueMap,
-                         rows.dataOffset + i * kUnlockMapRowStride + kValueMapReservedOffset,
-                         reserved)) {
-                return {};
-            }
-            if (mappedSlot < 0 || static_cast<std::uint16_t>(mappedSlot) != slot) {
-                continue;
-            }
-            if (reserved != 0 || ++matches != 1 || i >= kUnavailableValueMapRow
-                || (descriptor != kAccountValueMapDescriptor
-                    && descriptor != kCharacterValueMapDescriptor)) {
-                return {};
-            }
-            quest.row = static_cast<std::uint16_t>(i);
-            quest.scope = descriptor == kAccountValueMapDescriptor ? Quest::Scope::account
-                                                                   : Quest::Scope::character;
-        }
+    if (!detail::map_quest_value_slot(valueMap, set.valueSlot, quest.scope, quest.row)) {
+        return {};
     }
-    return matches == 1 && (!separateRoot || quest.scope == Quest::Scope::character)
+    return (!separateRoot || quest.scope == Quest::Scope::character)
                    && state::build_data::items::valid(quest)
                ? quest
                : Quest{};
