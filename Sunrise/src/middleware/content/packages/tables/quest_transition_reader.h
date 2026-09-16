@@ -65,4 +65,22 @@ read_power_quest_gate(std::span<const std::byte> definition,
                       std::span<const std::byte> valueMap,
                       std::span<const std::byte> objectiveTable) noexcept;
 
+/**
+ * Reads a supported first-stage visit counter and its incomplete-objective flag.
+ * @param definition Current pursuit item definition.
+ * @param itemIndex Current item's item-table index.
+ * @param parent Quest-set owner selected by quest_parent.
+ * @param itemCount Exclusive item-table bound.
+ * @param valueMap Installed unlock value maps.
+ * @param objectiveTable Dense objective definition table.
+ * @return Empty for unknown event semantics, later stages or unsupported metadata.
+ */
+[[nodiscard]] state::build_data::items::QuestVisitGate
+read_vendor_visit_gate(std::span<const std::byte> definition,
+                       std::uint16_t itemIndex,
+                       std::span<const std::byte> parent,
+                       std::size_t itemCount,
+                       std::span<const std::byte> valueMap,
+                       std::span<const std::byte> objectiveTable) noexcept;
+
 } // namespace sunrise::middleware::content::packages::tables::items

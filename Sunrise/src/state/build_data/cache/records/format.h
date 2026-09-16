@@ -31,7 +31,7 @@ namespace sunrise::state::build_data::cache::records {
 /** These 8 ASCII bytes mark a Sunrise build-data file. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', 'E', 'B'};
 /** Bump when stored layouts or extracted values change; other versions are rebuilt. */
-inline constexpr std::uint32_t kCacheFormatVersion = 67;
+inline constexpr std::uint32_t kCacheFormatVersion = 68;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -161,6 +161,12 @@ struct ItemRecord {
     std::int32_t questSuccessorValue{};
     std::uint16_t questSuccessorItemIndex{};
     std::uint16_t questCompletionEffect{items::kUnavailableQuestCompletionEffect};
+    std::int32_t visitSuccessorValue{};
+    std::uint16_t visitSuccessorItemIndex{};
+    std::uint16_t visitCompletionEffect{items::kUnavailableQuestCompletionEffect};
+    std::uint16_t visitCounterSlot{};
+    std::uint16_t visitCounterRow{};
+    std::uint16_t visitIncompleteFlag{};
 };
 
 /** Disk form of one material charged by a native Collections acquisition. */
@@ -532,6 +538,15 @@ struct VendorIndexRecord {
     std::uint16_t reserved{};
 };
 
+/** Disk form of one supported rowless vendor visit reply. */
+struct VisitReplyRecord {
+    std::uint16_t interactionIndex{};
+    std::uint16_t replyIndex{};
+    std::array<std::uint16_t, 2> flags{};
+    std::array<std::uint16_t, 2> accountFlagRows{vendors::kUnavailableAccountFlagRow,
+                                                 vendors::kUnavailableAccountFlagRow};
+};
+
 /** Disk form of one extracted vendor definition and its flat-bank ranges. */
 struct VendorDefinitionRecord {
     std::uint32_t definitionHash{};
@@ -552,6 +567,8 @@ struct VendorDefinitionRecord {
     std::uint16_t installedCount{};
     std::uint16_t saleCount{};
     std::uint16_t thirdCount{};
+    std::array<VisitReplyRecord, vendors::kVisitReplyCapacity> visitReplies{};
+    std::uint16_t visitReplyCount{};
 };
 
 /** Disk form of one vendor sale row. */
@@ -594,8 +611,10 @@ static_assert(sizeof(SpawnPointRecord)
               == spawn_sets::kPositionComponents * sizeof(float) + sizeof(std::uint32_t)
                      + sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
 static_assert(sizeof(VendorIndexRecord) == 2 * sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t));
+static_assert(sizeof(VisitReplyRecord) == 6 * sizeof(std::uint16_t));
 static_assert(sizeof(VendorDefinitionRecord)
-              == 14 * sizeof(std::uint32_t) + 4 * sizeof(std::uint16_t));
+              == 14 * sizeof(std::uint32_t) + 5 * sizeof(std::uint16_t)
+                     + vendors::kVisitReplyCapacity * sizeof(VisitReplyRecord));
 static_assert(sizeof(VendorSaleRowRecord) == 4 * sizeof(std::uint16_t) + 2 * sizeof(std::uint32_t));
 static_assert(sizeof(VendorInstalledRowRecord) == sizeof(std::uint32_t));
 static_assert(sizeof(HashNameRecord)
@@ -650,7 +669,7 @@ static_assert(sizeof(NamedRecord)
               == content::kDefinitionNameCapacity + 2 * sizeof(std::uint16_t)
                      + 2 * sizeof(std::uint32_t));
 static_assert(sizeof(ItemRecord)
-              == 7 * sizeof(std::uint32_t) + 10 * sizeof(std::uint16_t) + 3 * sizeof(std::uint8_t));
+              == 8 * sizeof(std::uint32_t) + 15 * sizeof(std::uint16_t) + 3 * sizeof(std::uint8_t));
 static_assert(sizeof(MaterialRequirementRecord)
               == sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
 static_assert(sizeof(CollectibleRecord)

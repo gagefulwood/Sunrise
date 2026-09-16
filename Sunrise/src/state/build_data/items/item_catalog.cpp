@@ -107,6 +107,11 @@ bool valid(std::span<const Definition> definitions) noexcept {
             || !valid(definition.questInitialization) || !valid(definition.primeDecryption)
             || !valid(
                 definition.powerGate, definition.questInitialization, definition.definitionIndex)
+            || !valid(
+                definition.visitGate, definition.questInitialization, definition.definitionIndex)
+            || (definition.visitGate != QuestVisitGate{}
+                && (definition.bucketId != kPursuitBucketId
+                    || definition.visitGate.successorItemIndex >= definitions.size()))
             || (definition.powerGate != QuestPowerGate{}
                 && (definition.bucketId != kPursuitBucketId
                     || definition.powerGate.successorItemIndex >= definitions.size()))
@@ -142,6 +147,33 @@ bool replace(std::span<const Definition> definitions) noexcept {
             insert_lookup(definition);
         }
     }
+    return true;
+}
+
+/**
+ * One incomplete flag must name exactly one supported visit item.
+ * @param incompleteFlag Global objective flag named by a vendor gate.
+ * @param definition Receives the item only on success.
+ * @return False for absent or ambiguous metadata.
+ */
+bool find_visit_flag(std::uint16_t incompleteFlag, Definition& definition) noexcept {
+    definition = {};
+    const std::shared_lock guard(g_lock);
+    const Definition* match = nullptr;
+    for (const auto& candidate : g_definitions.rows()) {
+        if (candidate.visitGate == QuestVisitGate{}
+            || candidate.visitGate.incompleteFlag != incompleteFlag) {
+            continue;
+        }
+        if (match != nullptr) {
+            return false;
+        }
+        match = &candidate;
+    }
+    if (match == nullptr) {
+        return false;
+    }
+    definition = *match;
     return true;
 }
 

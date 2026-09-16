@@ -8,6 +8,7 @@
 #include "../../../../state/activity/runtime.h"
 #include "../../../../state/matchmaking/matchmaking_state.h"
 #include "../../../../state/runtime/runtime.h"
+#include "../../../../state/runtime/state_quest_transition_runtime.h"
 #include "../bap_connection_publication.h"
 #include "../internal.h"
 
@@ -238,6 +239,15 @@ bool commit(ServiceOutcome& outcome, Publication& publication, const char*& reas
                          committed ? core::log::Level::debug : core::log::Level::warn,
                          committed ? "ev=ws701 stage=transaction_commit result=ok"
                                    : "ev=ws701 stage=transaction_commit result=fail");
+        return committed;
+    }
+    if (auto* mutation = transaction_if<state::PendingVendorVisit>(outcome)) {
+        reason = "vendor_visit";
+        const bool committed = state::commit_vendor_visit(*mutation);
+        core::log::write(core::log::Channel::server,
+                         committed ? core::log::Level::debug : core::log::Level::warn,
+                         committed ? "ev=ws904 stage=transaction_commit result=ok"
+                                   : "ev=ws904 stage=transaction_commit result=fail");
         return committed;
     }
     if (auto* transaction = transaction_if<EquipmentSwapTransaction>(outcome)) {

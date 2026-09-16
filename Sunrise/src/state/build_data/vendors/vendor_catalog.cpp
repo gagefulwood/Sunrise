@@ -5,6 +5,7 @@
 
 #include "../table.h"
 #include "core/threading/srw_lock.h"
+#include "state/unlocks/definition.h"
 
 namespace sunrise::state::build_data::vendors {
 namespace {
@@ -45,6 +46,47 @@ Table<InstalledRow, kInstalledRowCapacity> g_installedRows;
     return end <= definitionSize;
 }
 
+/** @return True when one unused visit-reply slot has its sole canonical representation. */
+[[nodiscard]] bool empty(const VisitReply& reply) noexcept {
+    return reply.interactionIndex == 0 && reply.replyIndex == 0
+           && reply.flags == std::array<std::uint16_t, 2>{}
+           && reply.accountFlagRows
+                  == std::array<std::uint16_t, 2>{kUnavailableAccountFlagRow,
+                                                  kUnavailableAccountFlagRow};
+}
+
+/**
+ * Checks one definition's visit replies and canonical unused slots.
+ * @param definition Candidate vendor definition.
+ * @return True when selectors and rows are bounded and interactions are unique.
+ */
+[[nodiscard]] bool canonical_visit_replies(const Definition& definition) noexcept {
+    if (definition.visitReplyCount > kVisitReplyCapacity) {
+        return false;
+    }
+    for (std::size_t row = 0; row < definition.visitReplyCount; ++row) {
+        const VisitReply& reply = definition.visitReplies[row];
+        if (reply.interactionIndex >= definition.thirdCount || reply.replyIndex != 0
+            || reply.flags[0] == reply.flags[1]
+            || std::any_of(reply.accountFlagRows.begin(),
+                           reply.accountFlagRows.end(),
+                           [](std::uint16_t flagRow) {
+                               return flagRow != kUnavailableAccountFlagRow
+                                      && flagRow >= state::unlocks::kAccountFlagCapacity;
+                           })) {
+            return false;
+        }
+        for (std::size_t prior = 0; prior < row; ++prior) {
+            if (definition.visitReplies[prior].interactionIndex == reply.interactionIndex) {
+                return false;
+            }
+        }
+    }
+    return std::all_of(definition.visitReplies.begin() + definition.visitReplyCount,
+                       definition.visitReplies.end(),
+                       empty);
+}
+
 /**
  * Checks one definition against the index row it is named by and its own blob bounds.
  * @param definition Candidate definition.
@@ -77,7 +119,8 @@ Table<InstalledRow, kInstalledRowCapacity> g_installedRows;
                          definition.thirdRowClass,
                          kThirdRowStride,
                          0,
-                         definition.definitionSize);
+                         definition.definitionSize)
+           && canonical_visit_replies(definition);
 }
 
 /**

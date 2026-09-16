@@ -42,15 +42,25 @@ bool encode(const vendors::Definition& value, VendorDefinitionRecord& record) no
     record.installedCount = value.installedCount;
     record.saleCount = value.saleCount;
     record.thirdCount = value.thirdCount;
+    for (std::size_t row = 0; row < value.visitReplies.size(); ++row) {
+        const vendors::VisitReply& source = value.visitReplies[row];
+        VisitReplyRecord& target = record.visitReplies[row];
+        target.interactionIndex = source.interactionIndex;
+        target.replyIndex = source.replyIndex;
+        target.flags = source.flags;
+        target.accountFlagRows = source.accountFlagRows;
+    }
+    record.visitReplyCount = value.visitReplyCount;
     return true;
 }
 
 /** Decodes one vendor definition and its flat-bank ranges. */
 bool decode(const VendorDefinitionRecord& record, vendors::Definition& value) noexcept {
     value = {};
-    // The catalog checks every range against the whole domain. Only the class is checked here.
-    // A row of another class is not a vendor definition, whatever its ranges say.
-    if (record.definitionClass != vendors::kDefinitionClass) {
+    // The catalog checks every range against the whole domain. Reject record-level class and count
+    // fields here before copying their payloads.
+    if (record.definitionClass != vendors::kDefinitionClass
+        || record.visitReplyCount > vendors::kVisitReplyCapacity) {
         return false;
     }
     value.definitionHash = record.definitionHash;
@@ -71,6 +81,15 @@ bool decode(const VendorDefinitionRecord& record, vendors::Definition& value) no
     value.installedCount = record.installedCount;
     value.saleCount = record.saleCount;
     value.thirdCount = record.thirdCount;
+    for (std::size_t row = 0; row < record.visitReplies.size(); ++row) {
+        const VisitReplyRecord& source = record.visitReplies[row];
+        vendors::VisitReply& target = value.visitReplies[row];
+        target.interactionIndex = source.interactionIndex;
+        target.replyIndex = source.replyIndex;
+        target.flags = source.flags;
+        target.accountFlagRows = source.accountFlagRows;
+    }
+    value.visitReplyCount = record.visitReplyCount;
     return true;
 }
 

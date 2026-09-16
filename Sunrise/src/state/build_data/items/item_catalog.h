@@ -45,6 +45,8 @@ struct Definition {
     QuestCounterBinding primeDecryption{};
     /** Empty unless this first quest member has one supported automatic Power objective. */
     QuestPowerGate powerGate{};
+    /** Empty unless the first member has a supported vendor-visit objective. */
+    QuestVisitGate visitGate{};
 };
 
 /** Roll-set ordinals outside the rolled ladder. */
@@ -64,6 +66,14 @@ enum class Tier : std::uint8_t {
     legendary = 4,
     exotic = 5,
 };
+
+/**
+ * Finds the one supported visit objective that publishes an incomplete flag.
+ * @param incompleteFlag Global objective flag named by a vendor gate.
+ * @param definition Receives the owning first-stage item; cleared on refusal.
+ * @return False for absent or ambiguous metadata.
+ */
+[[nodiscard]] bool find_visit_flag(std::uint16_t incompleteFlag, Definition& definition) noexcept;
 
 /** Clears every generated item mapping. */
 void clear() noexcept;

@@ -144,6 +144,55 @@ struct QuestPowerGate {
     return result;
 }
 
+/** A first-stage visit carries one account counter and the flag it publishes while incomplete. */
+struct QuestVisitGate {
+    std::int32_t successorValue{};
+    std::uint16_t successorItemIndex{};
+    std::uint16_t completionEffect{kUnavailableQuestCompletionEffect};
+    std::uint16_t counterSlot{};
+    std::uint16_t counterRow{};
+    std::uint16_t incompleteFlag{};
+
+    bool operator==(const QuestVisitGate&) const = default;
+};
+
+/**
+ * Expands a first-stage account visit without inferring its event from a numeric threshold.
+ * @param gate Supported visit objective metadata, or empty.
+ * @param initial First-stage saved value and row.
+ * @param sourceIndex Owning item-table index.
+ * @return Empty for absent metadata; validate the result before use.
+ */
+[[nodiscard]] constexpr QuestTransition visit_transition(const QuestVisitGate& gate,
+                                                         const QuestInitialization& initial,
+                                                         std::uint16_t sourceIndex) noexcept {
+    if (gate == QuestVisitGate{} || initial.scope != QuestInitialization::Scope::account) {
+        return {};
+    }
+    QuestTransition result{};
+    result.sourceItemIndex = sourceIndex;
+    result.successorItemIndex = gate.successorItemIndex;
+    result.currentValue = initial.value;
+    result.nextValue = gate.successorValue;
+    result.valueRow = initial.row;
+    result.scope = initial.scope;
+    // Visit credit is binary; reply acceptance supplies one, not a measured activity count.
+    result.objectives[0] = {
+        gate.counterSlot, 1, QuestPredicate::Input::accountCounter, gate.counterRow};
+    result.objectiveCount = 1;
+    result.completionEffect = gate.completionEffect;
+    return result;
+}
+
+/** @return Empty gates are valid; live visits must use distinct account stage and counter rows. */
+[[nodiscard]] constexpr bool valid(const QuestVisitGate& gate,
+                                   const QuestInitialization& initial,
+                                   std::uint16_t sourceIndex) noexcept {
+    return gate == QuestVisitGate{}
+           || (valid(visit_transition(gate, initial, sourceIndex)) && gate.counterRow != initial.row
+               && gate.incompleteFlag != kUnavailableQuestItemIndex);
+}
+
 /**
  * Checks every objective against one unambiguous resolved input value.
  * @param quest Validated transition metadata; its completion effect is not an eligibility gate.

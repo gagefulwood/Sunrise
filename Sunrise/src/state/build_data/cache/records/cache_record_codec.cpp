@@ -76,9 +76,16 @@ bool encode(const items::Definition& value, ItemRecord& record) noexcept {
         value.powerGate.successorValue,
         value.powerGate.successorItemIndex,
         value.powerGate.completionEffect,
+        value.visitGate.successorValue,
+        value.visitGate.successorItemIndex,
+        value.visitGate.completionEffect,
+        value.visitGate.counterSlot,
+        value.visitGate.counterRow,
+        value.visitGate.incompleteFlag,
     };
     return items::valid(value.questInitialization) && items::valid(value.primeDecryption)
-           && items::valid(value.powerGate, value.questInitialization, value.definitionIndex);
+           && items::valid(value.powerGate, value.questInitialization, value.definitionIndex)
+           && items::valid(value.visitGate, value.questInitialization, value.definitionIndex);
 }
 
 /**
@@ -107,9 +114,16 @@ bool decode(const ItemRecord& record, items::Definition& value) noexcept {
              {record.questMinimumPower,
               record.questSuccessorValue,
               record.questSuccessorItemIndex,
-              record.questCompletionEffect}};
+              record.questCompletionEffect},
+             {record.visitSuccessorValue,
+              record.visitSuccessorItemIndex,
+              record.visitCompletionEffect,
+              record.visitCounterSlot,
+              record.visitCounterRow,
+              record.visitIncompleteFlag}};
     return items::valid(value.questInitialization) && items::valid(value.primeDecryption)
-           && items::valid(value.powerGate, value.questInitialization, value.definitionIndex);
+           && items::valid(value.powerGate, value.questInitialization, value.definitionIndex)
+           && items::valid(value.visitGate, value.questInitialization, value.definitionIndex);
 }
 
 /** Encodes one collectible ordinal and its optional item link. */

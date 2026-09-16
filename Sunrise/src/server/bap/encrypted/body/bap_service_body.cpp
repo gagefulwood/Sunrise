@@ -325,6 +325,27 @@ bool process(const ServiceRoute& route,
                 return refuse_web_action(message, output, written);
             }
         }
+        const auto* vendorVisit = web_service::mutation_if<state::PendingVendorVisit>(webOutcome);
+        if (vendorVisit != nullptr) {
+            if (!queuezState.family4Active
+                || queuezState.family4RootSoid != vendorVisit->quest.accountSoid
+                || queuezState.family4Version == (std::numeric_limits<std::int32_t>::max)()
+                || emplace_transaction<state::PendingVendorVisit>(outcome, *vendorVisit)
+                       == nullptr) {
+                return refuse_web_action(message, output, written);
+            }
+            middleware::web_service::StatusResponse status{};
+            status.value = queuezState.family4Version + 1;
+            if (!middleware::web_service::encode_response(
+                    message,
+                    middleware::web_service::ResponseShape::statusPair,
+                    status,
+                    output,
+                    written)) {
+                clear_transaction(outcome);
+                return refuse_web_action(message, output, written);
+            }
+        }
         if (equipmentSwap != nullptr) {
             // Promise the Family-4 revision carrying this optimistic equip.
             auto* transaction = emplace_transaction<EquipmentSwapTransaction>(outcome);

@@ -51,6 +51,18 @@ constexpr std::int32_t kBooleanObjectiveThreshold = 1;
 constexpr std::uint32_t kPrimeDecryptionObjectiveHash = 4243255788U;
 /** The authored objective hash is the first field of each native objective row. */
 constexpr std::size_t kObjectiveHashOffset = 0;
+/** Build 86657's Symmetry objective records a Banshee visit, not weapon progress. */
+constexpr std::uint32_t kSymmetryVisitObjectiveHash = 0xBDE29207U;
+/** Build 86657's Eriana objective records a Banshee visit, not catalyst progress. */
+constexpr std::uint32_t kErianaVisitObjectiveHash = 0xF98DC0F5U;
+/** Build 86657's Witherhoard objective records a Banshee visit, not catalyst progress. */
+constexpr std::uint32_t kWitherhoardVisitObjectiveHash = 0x3E22B55BU;
+/** Objective row +72 lists flags emitted only while the objective is incomplete. */
+constexpr std::size_t kObjectiveIncompleteFlagsOffset = 72;
+/** Objective row +88 carries a separate flag list outside the supported visit contract. */
+constexpr std::size_t kObjectiveOtherFlagsOffset = 88;
+/** Incomplete-objective flag arrays hold 16-bit flag indices of this element class. */
+constexpr std::uint32_t kObjectiveFlagClass = 0x80807D4BU;
 /**
  * Reads a direct counter or a VALUE, signed CONSTANT, GE predicate.
  * @param table Objective-table bytes.
@@ -377,6 +389,61 @@ read_power_quest_gate(std::span<const std::byte> definition,
                                      transition.successorItemIndex,
                                      transition.completionEffect};
     return items::valid(gate, initial, itemIndex) ? gate : items::QuestPowerGate{};
+}
+
+/**
+ * A visit needs an explicit event identity; threshold one alone does not identify a visit.
+ * @param definition Current pursuit item definition.
+ * @param itemIndex Current item's item-table index.
+ * @param parent Quest-set owner selected by quest_parent.
+ * @param itemCount Exclusive item-table bound.
+ * @param valueMap Installed unlock value maps.
+ * @param objectiveTable Dense objective definition table.
+ * @return Empty for unknown events, malformed flags or unsupported transition metadata.
+ */
+state::build_data::items::QuestVisitGate
+read_vendor_visit_gate(std::span<const std::byte> definition,
+                       std::uint16_t itemIndex,
+                       std::span<const std::byte> parent,
+                       std::size_t itemCount,
+                       std::span<const std::byte> valueMap,
+                       std::span<const std::byte> objectiveTable) noexcept {
+    namespace items = state::build_data::items;
+    const auto initial =
+        read_quest_initialization(definition, itemIndex, parent, itemCount, valueMap);
+    Transition transition{};
+    std::size_t block = 0, row = 0;
+    Array references{}, rows{}, flags{}, otherFlags{};
+    std::uint16_t objectiveIndex = 0, incompleteFlag = 0;
+    std::uint32_t hash = 0;
+    if (initial.scope != Scope::account
+        || !read_quest_transition(
+            definition, itemIndex, parent, itemCount, valueMap, objectiveTable, transition)
+        || transition.currentValue != initial.value || transition.valueRow != initial.row
+        || transition.objectiveCount != 1
+        || transition.objectives[0].input != Predicate::Input::accountCounter
+        || transition.objectives[0].minimumValue != kBooleanObjectiveThreshold
+        || !detail::read_quest_objectives(definition, block, references)
+        || !read(definition, references.dataOffset, objectiveIndex)
+        || !find_array(objectiveTable, kObjectiveRowClass, rows)
+        || !element_offset(rows.dataOffset, rows.count, kObjectiveRowStride, objectiveIndex, row)
+        || !read(objectiveTable, row + kObjectiveHashOffset, hash)
+        || (hash != kSymmetryVisitObjectiveHash && hash != kErianaVisitObjectiveHash
+            && hash != kWitherhoardVisitObjectiveHash)
+        || !find_array_at(objectiveTable, row + kObjectiveIncompleteFlagsOffset, flags)
+        || flags.count != 1 || flags.elementClass != kObjectiveFlagClass
+        || !read(objectiveTable, flags.dataOffset, incompleteFlag)
+        || !find_optional_array_at(objectiveTable, row + kObjectiveOtherFlagsOffset, otherFlags)
+        || otherFlags.count != 0) {
+        return {};
+    }
+    const items::QuestVisitGate gate{transition.nextValue,
+                                     transition.successorItemIndex,
+                                     transition.completionEffect,
+                                     transition.objectives[0].valueSlot,
+                                     transition.objectives[0].valueRow,
+                                     incompleteFlag};
+    return items::valid(gate, initial, itemIndex) ? gate : items::QuestVisitGate{};
 }
 
 } // namespace sunrise::middleware::content::packages::tables::items

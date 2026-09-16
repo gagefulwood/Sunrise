@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+#include "../Sunrise/src/middleware/content/packages/tables/definition_index_table.h"
 #include "../Sunrise/src/middleware/content/packages/tables/quest_initialization_reader.h"
 #include "../Sunrise/src/middleware/content/packages/tables/quest_transition_reader.h"
 #include "../Sunrise/src/state/build_data/cache/records/codec.h"
@@ -716,13 +717,14 @@ void verify_retained_visits(const char* retainedDirectory) {
     using Scope = sunrise::state::build_data::items::QuestInitialization::Scope;
     struct Case {
         const char* file;
-        std::uint16_t source, successor, stageRow, counterSlot, counterRow, completionEffect;
+        std::uint16_t source, successor, stageRow, counterSlot, counterRow, completionEffect,
+            incompleteFlag, objectiveIndex;
     };
     // Independent build-86657 item, saved-row and effect references for three first-stage visits.
     constexpr Case cases[]{
-        {"81327AE5.bin", 15288, 15289, 5765, 13084, 5766, 11494},
-        {"813277B4.bin", 15162, 15163, 5701, 12910, 5702, 11097},
-        {"81327CAA.bin", 15392, 15393, 5858, 13213, 5859, 11814},
+        {"81327AE5.bin", 15288, 15289, 5765, 13084, 5766, 11494, 20724, 8329},
+        {"813277B4.bin", 15162, 15163, 5701, 12910, 5702, 11097, 20592, 8149},
+        {"81327CAA.bin", 15392, 15393, 5858, 13213, 5859, 11814, 20818, 8469},
     };
     /** Build 86657's dense item table contains this many definitions. */
     constexpr std::size_t kRetainedItemCount = 15424;
@@ -752,6 +754,43 @@ void verify_retained_visits(const char* retainedDirectory) {
         expected.completionEffect = entry.completionEffect;
         expected.scope = Scope::account;
         check(output == expected, "retained account visit contract differs");
+        namespace items = sunrise::state::build_data::items;
+        namespace reader = sunrise::middleware::content::packages::tables::items;
+        namespace cache = sunrise::state::build_data::cache::records;
+        const items::QuestVisitGate visit{expected.nextValue,
+                                          entry.successor,
+                                          entry.completionEffect,
+                                          entry.counterSlot,
+                                          entry.counterRow,
+                                          entry.incompleteFlag};
+        check(reader::read_vendor_visit_gate(
+                  item, entry.source, item, kRetainedItemCount, values, objectives)
+                  == visit,
+              "retained visit event binding differs");
+        items::Definition stored{}, decoded{};
+        stored.definitionIndex = entry.source;
+        stored.questInitialization = {kFirstStep, entry.stageRow, Scope::account};
+        stored.visitGate = visit;
+        cache::ItemRecord record{};
+        check(cache::encode(stored, record) && cache::decode(record, decoded)
+                  && decoded.visitGate == visit
+                  && items::visit_transition(visit, stored.questInitialization, entry.source)
+                         == expected,
+              "visit cache round trip or expansion differs");
+        record.visitCounterRow = entry.stageRow;
+        check(!cache::decode(record, decoded), "cached visit can overwrite stage counter");
+        namespace tables = sunrise::middleware::content::packages::tables;
+        tables::Array rows{};
+        check(tables::find_array_at(objectives, tables::kTableArrayDescriptor, rows),
+              "resolve retained objective table");
+        auto unrelated = objectives;
+        put(unrelated,
+            rows.dataOffset + entry.objectiveIndex * tables::kObjectiveRowStride,
+            std::uint32_t{0});
+        check(reader::read_vendor_visit_gate(
+                  item, entry.source, item, kRetainedItemCount, values, unrelated)
+                  == items::QuestVisitGate{},
+              "same numeric shape with unknown event cannot become a visit");
         check(read_prime_decryption_binding(
                   item, entry.source, item, kRetainedItemCount, values, objectives)
                   == QuestCounterBinding{},

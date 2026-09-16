@@ -7,6 +7,7 @@
 #include "core/logging/log.h"
 #include "middleware/encoding/bit_reader.h"
 #include "middleware/web_service/messages/family5_codec.h"
+#include "state/build_data/vendors/vendor_catalog.h"
 #include "state/equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "state/investment/store_internal.h"
 #include "state/runtime/state_account_transaction_helpers.h"
@@ -40,6 +41,12 @@ std::int32_t g_characterPower = kMinimumValue;
 std::int32_t g_powerMinimum = kMinimumValue;
 bool g_powerAvailable = true;
 bool g_powerGateInstalled = false;
+bool g_visitGateInstalled = false;
+/** Synthetic reply selectors and flag rows do not identify an installed vendor. */
+constexpr std::uint16_t kVendor = 4, kInteraction = 5, kVisitFlag = 11, kGateRow = 13;
+/** Synthetic second flag joins to kGateRow, not to the quest's incomplete flag. */
+constexpr std::uint16_t kOtherFlag = 19;
+state::build_data::vendors::Definition g_vendor{};
 
 /** @param passed Condition to enforce. @param label Identifies the failed check. */
 void check(bool passed, const char* label) {
@@ -87,6 +94,8 @@ void reset_fixture() {
     g_powerMinimum = kMinimumValue;
     g_powerAvailable = true;
     g_powerGateInstalled = false;
+    g_visitGateInstalled = false;
+    g_vendor = {};
     state::AccountState account{};
     account.primarySoid = kAccount;
     account.characterCount = 2;
@@ -560,6 +569,7 @@ void verify_vendor_visit() {
     state::PendingQuestTransition pending{};
     const auto seed = [&] {
         reset_fixture();
+        g_visitGateInstalled = true;
         check(store::write_unlock(store::Bank::objectiveValues, kQuestRow, kCurrentValue),
               "seed visit stage");
     };
@@ -634,6 +644,49 @@ void verify_vendor_visit() {
           "visit credit, stage and successor persist together");
     check(!state::commit_quest_transition(visit, replay), "accepted reply replay refused");
     std::puts("PASS: vendor visit credit, atomic replacement, stale guards and rollback");
+}
+
+/** Checks reply routing, gate revalidation and ownership before accepting visit credit. */
+void verify_vendor_reply() {
+    reset_fixture();
+    g_visitGateInstalled = true;
+    g_vendor.index = kVendor;
+    g_vendor.visitReplyCount = 1;
+    auto& reply = g_vendor.visitReplies[0];
+    reply.interactionIndex = kInteraction;
+    reply.replyIndex = 0;
+    reply.flags = {kVisitFlag, kOtherFlag};
+    reply.accountFlagRows = {(std::numeric_limits<std::uint16_t>::max)(), kGateRow};
+    check(store::write_unlock(store::Bank::objectiveValues, kQuestRow, kCurrentValue),
+          "seed reply quest stage");
+    state::PendingVendorVisit pending{};
+    check(state::vendor_visit_supported(kVendor, kInteraction)
+              && !state::vendor_visit_supported(kVendor, kInteraction + 1),
+          "only supported interaction bypasses acquisition");
+    check(!state::prepare_vendor_visit(kVendor, kInteraction, 0, pending),
+          "inactive account gate refuses visit");
+    check(store::write_unlock(store::Bank::accountFlags, kGateRow, state::unlocks::kFlagSet),
+          "enable reply gate");
+    check(!state::prepare_vendor_visit(kVendor, kInteraction, 1, pending)
+              && !state::prepare_vendor_visit(kVendor + 1, kInteraction, 0, pending),
+          "wrong reply and vendor selectors refused");
+    check(state::prepare_vendor_visit(kVendor, kInteraction, 0, pending), "prepare bound reply");
+    check(store::write_unlock(store::Bank::accountFlags, kGateRow, state::unlocks::kFlagClear),
+          "clear gate before commit");
+    check(!state::commit_vendor_visit(pending) && !pending.quest.prepared,
+          "changed gate refuses and consumes reply");
+    check(store::write_unlock(store::Bank::accountFlags, kGateRow, state::unlocks::kFlagSet),
+          "restore reply gate");
+    check(state::prepare_vendor_visit(kVendor, kInteraction, 0, pending), "prepare changed reply");
+    reply.flags[0] = kOtherFlag;
+    check(!state::commit_vendor_visit(pending), "changed content binding refuses reply");
+    reply.flags[0] = kVisitFlag;
+    check(state::prepare_vendor_visit(kVendor, kInteraction, 0, pending), "prepare final reply");
+    check(state::commit_vendor_visit(pending), "bound reply commits visit");
+    check(state::vendor_visit_supported(kVendor, kInteraction)
+              && !state::prepare_vendor_visit(kVendor, kInteraction, 0, pending),
+          "accepted reply cannot fall back to an item grant after replacement");
+    std::puts("PASS: vendor reply selectors, ownership, gate and metadata revalidation");
 }
 
 /** Checks ownership, missing values, stale counters and joined transaction rollback. */
@@ -816,6 +869,12 @@ bool find_item_definition_index(std::uint16_t index, items::Definition& definiti
             kCurrentValue, kQuestRow, items::QuestInitialization::Scope::character};
         definition.powerGate = {g_powerMinimum, kNextValue, 1, contract().completionEffect};
     }
+    if (g_visitGateInstalled && index == 0) {
+        definition.questInitialization = {
+            kCurrentValue, kQuestRow, items::QuestInitialization::Scope::account};
+        definition.visitGate = {
+            kNextValue, 1, contract().completionEffect, kValueSlot, kAccountCounterRow, kVisitFlag};
+    }
     return true;
 }
 
@@ -833,6 +892,28 @@ bool find_configured_item_detail(std::uint16_t, items::details::Definition&) noe
 }
 
 } // namespace sunrise::state::build_data
+
+namespace sunrise::state::build_data::items {
+/** The fixture publishes one synthetic visit objective, never game metadata. */
+bool find_visit_flag(std::uint16_t flag, Definition& definition) noexcept {
+    return g_visitGateInstalled && flag == kVisitFlag
+           && build_data::find_item_definition_index(0, definition);
+}
+} // namespace sunrise::state::build_data::items
+
+namespace sunrise::state::build_data::vendors {
+/** The fixture has one vendor; request selectors outside it cannot resolve. */
+bool find_index(std::uint16_t index, IndexEntry& entry) noexcept {
+    entry = {};
+    entry.index = index;
+    return index == kVendor;
+}
+/** Returns the fixture's current metadata so stale plans see changes at commit. */
+bool find(std::uint32_t hash, Definition& definition) noexcept {
+    definition = g_vendor;
+    return hash == 0;
+}
+} // namespace sunrise::state::build_data::vendors
 
 namespace sunrise::state::equipment::light::resolution {
 
@@ -907,6 +988,7 @@ int main(int argc, char** argv) {
     verify_automatic_power_gate();
     verify_account_transition();
     verify_vendor_visit();
+    verify_vendor_reply();
     verify_character_objectives();
     verify_objective_publication();
     verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]

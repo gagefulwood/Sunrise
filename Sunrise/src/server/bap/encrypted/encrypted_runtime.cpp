@@ -382,6 +382,7 @@ bool consume(Session& session,
         }
     }
     const bool artifactPurchase = transaction_if<ArtifactPurchaseTransaction>(outcome) != nullptr;
+    const bool vendorVisit = transaction_if<state::PendingVendorVisit>(outcome) != nullptr;
     const bool mutatesAccount =
         outcome.hasSelectCharacter || outcome.hasRecordClaim || outcome.hasArtifactReset
         || transaction_if<EquipmentSwapTransaction>(outcome) != nullptr
@@ -394,7 +395,7 @@ bool consume(Session& session,
         || transaction_if<ItemDismantleTransaction>(outcome) != nullptr
         || transaction_if<RecordRewardGrantTransaction>(outcome) != nullptr
         || transaction_if<SeasonPassRewardTransaction>(outcome) != nullptr
-        || transaction_if<state::PendingSettingsUpdate>(outcome) != nullptr;
+        || transaction_if<state::PendingSettingsUpdate>(outcome) != nullptr || vendorVisit;
     const bool presentsAcquisition =
         transaction_if<ItemAcquisitionTransaction>(outcome) != nullptr
         || transaction_if<ProfileItemAcquisitionTransaction>(outcome) != nullptr
@@ -402,7 +403,7 @@ bool consume(Session& session,
         || transaction_if<SeasonPassRewardTransaction>(outcome) != nullptr;
     const bool invalidatesAcquisitionPresentation =
         outcome.hasChangeCharacter || outcome.hasSelectCharacter || outcome.hasArtifactReset
-        || transaction_if<ItemDismantleTransaction>(outcome) != nullptr;
+        || transaction_if<ItemDismantleTransaction>(outcome) != nullptr || vendorVisit;
     const bool hasPrecommittedAccountAction =
         outcome.hasRecordClaim || outcome.hasSelectCharacter || outcome.hasArtifactReset;
     // Commit consumes pending payloads, so retain the connection fields first.
@@ -520,7 +521,7 @@ bool consume(Session& session,
                 session.activityKeepaliveDueTick = GetTickCount64() + kActivityKeepaliveIntervalMs;
             }
             const bool resyncsCommittedAccount =
-                hasPrecommittedAccountAction && !queuezPublication.hasState;
+                vendorVisit || (hasPrecommittedAccountAction && !queuezPublication.hasState);
             if (resyncsCommittedAccount) {
                 bap::arm_account_resync_everywhere();
             }

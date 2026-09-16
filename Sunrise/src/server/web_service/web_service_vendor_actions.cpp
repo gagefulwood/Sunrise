@@ -20,6 +20,7 @@
 #include "../../state/build_data/vendors/repeatable_triggers.h"
 #include "../../state/build_data/vendors/vendor_catalog.h"
 #include "../../state/runtime/runtime.h"
+#include "../../state/runtime/state_quest_transition_runtime.h"
 #include "internal_actions.h"
 #include "web_service_actions.h"
 
@@ -581,11 +582,9 @@ void report_pursuit_rows(std::int32_t vendorIndex) noexcept {
 constexpr std::uint32_t kAbsentNameHash = 0x811C9DC5U;
 
 /**
- * Resolves the item behind a 904 that names no sale row.
- * The slot indexes the vendor's category array, not its sale rows, and a category row carries the
- * item's definition hash where a sale row names an index.
+ * Legacy fallback resolves unsupported rowless requests through category hashes.
  * @param vendorIndex Vendor the request named.
- * @param slotIndex The 16-bit slot field, which is all the request carries.
+ * @param slotIndex Request slot used as a category candidate by this fallback.
  * @param itemDefinitionIndex Receives the item, or the unavailable sentinel.
  * @return True when the row's hash resolved to an installed item definition.
  */
@@ -699,8 +698,9 @@ void settle_vendor_row(const middleware::web_service::Message& message,
 }
 
 /**
- * Prepares one opcode-904 quest acquire.
- * A quest names a vendor row exactly as a purchase does and takes the same grant path.
+ * Supported visit replies advance their quest; sale-backed requests retain the grant path.
+ * @param message Parsed WS904 request envelope.
+ * @param outcome Receives one prepared mutation, or none on refusal.
  */
 void acquire_quest(const middleware::web_service::Message& message, Outcome& outcome) noexcept {
     namespace quest = middleware::web_service::messages::opcode904;
@@ -723,9 +723,29 @@ void acquire_quest(const middleware::web_service::Message& message, Outcome& out
     const std::int32_t row = request.saleIndex;
     std::uint16_t itemDefinitionIndex = 0;
     const char* reason = "unknown";
-    // A row of -1 says the tile is not a sale row at all, so the installed array answers it.
-    // Reading the slot as a sale row here would grant whatever sits at that row.
     const bool rowless = row < 0;
+    if (rowless && request.vendorIndex >= 0 && request.slotIndex >= 0
+        && state::vendor_visit_supported(static_cast<std::uint16_t>(request.vendorIndex),
+                                         static_cast<std::uint16_t>(request.slotIndex))) {
+        auto* visit = emplace_mutation<state::PendingVendorVisit>(outcome);
+        const bool prepared =
+            visit != nullptr && row == quest::kAbsentSaleIndex && request.third >= 0
+            && state::prepare_vendor_visit(static_cast<std::uint16_t>(request.vendorIndex),
+                                           static_cast<std::uint16_t>(request.slotIndex),
+                                           static_cast<std::uint16_t>(request.third),
+                                           *visit);
+        report_purchase(quest::kOpcode,
+                        prepared ? "ok" : "fail",
+                        "vendor_visit",
+                        request.vendorIndex,
+                        request.slotIndex,
+                        prepared ? visit->quest.transition.sourceItemIndex
+                                 : kUnavailableDefinitionIndex);
+        if (!prepared) {
+            clear_mutation(outcome);
+        }
+        return;
+    }
     // A rowless 904 is an interaction reply, so its slot names the interaction, not a sale row.
     std::int32_t questCategoryIndex = -1;
     const bool located =

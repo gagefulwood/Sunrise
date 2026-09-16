@@ -38,6 +38,43 @@ struct PendingQuestTransition {
     bool prepared{};
 };
 
+/** The accepted reply stays attached to its quest plan until the gate is checked at commit. */
+struct PendingVendorVisit {
+    PendingQuestTransition quest{};
+    std::uint16_t vendorIndex{};
+    std::uint16_t interactionIndex{};
+    std::uint16_t replyIndex{};
+};
+
+/**
+ * Identifies supported visit interactions even when their quest is no longer owned.
+ * @param vendorIndex Installed vendor ordinal.
+ * @param interactionIndex Selected interaction ordinal.
+ * @return True when ordinary item-acquisition fallback must not handle this interaction.
+ */
+[[nodiscard]] bool vendor_visit_supported(std::uint16_t vendorIndex,
+                                          std::uint16_t interactionIndex) noexcept;
+
+/**
+ * Resolves a supported reply against exactly one owned active visit quest.
+ * @param vendorIndex Installed vendor ordinal from WS904.
+ * @param interactionIndex Interaction ordinal, not a sale or category row.
+ * @param replyIndex Reply ordinal within the selected interaction.
+ * @param mutation Receives the prepared visit; cleared on refusal.
+ * @return False for unsupported replies, inactive gates or ambiguous quest ownership.
+ */
+[[nodiscard]] bool prepare_vendor_visit(std::uint16_t vendorIndex,
+                                        std::uint16_t interactionIndex,
+                                        std::uint16_t replyIndex,
+                                        PendingVendorVisit& mutation) noexcept;
+
+/**
+ * Rechecks reply metadata and its current gate before saving visit credit and replacement.
+ * @param mutation Prepared visit; consumed on success or refusal.
+ * @return True only when the complete visit transaction commits.
+ */
+[[nodiscard]] bool commit_vendor_visit(PendingVendorVisit& mutation) noexcept;
+
 /**
  * Selects one eligible first-stage Power gate from the selected character's installed item
  * metadata.

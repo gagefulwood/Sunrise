@@ -12,6 +12,7 @@
 #include "../../../state/build_data/vendors/definition.h"
 #include "layout.h"
 #include "vendor_build.h"
+#include "visit_reply_parser.h"
 
 namespace sunrise::client::content::vendors {
 namespace {
@@ -23,7 +24,10 @@ namespace domain = state::build_data::vendors;
 /** Every extracted row, kept off the caller stack. */
 struct Storage {
     std::vector<std::byte> blob{};
+    std::vector<std::byte> companion{};
     std::array<domain::IndexEntry, domain::kIndexCapacity> index{};
+    std::array<std::uint32_t, domain::kIndexCapacity> companionTags{};
+    AccountFlagRows accountFlagRows{};
     std::array<domain::Definition, domain::kDefinitionCapacity> definitions{};
     std::array<domain::SaleRow, domain::kSaleRowCapacity> saleRows{};
     std::array<domain::InstalledRow, domain::kInstalledRowCapacity> installedRows{};
@@ -31,6 +35,7 @@ struct Storage {
     std::size_t definitionCount{};
     std::size_t saleRowCount{};
     std::size_t installedRowCount{};
+    bool visitSourcesReady{};
 };
 
 /** One array a definition or a sale row declares, reduced to what the catalog stores. */
@@ -145,6 +150,53 @@ read_index(const reader::Source& source, reader::Scratch& scratch, Storage& stor
 }
 
 /**
+ * Reads the client vendor index and account flag map used only by visit reply metadata.
+ * @param source Package directory and borrowed block keys.
+ * @param scratch Lock-owned block storage.
+ * @param storage Pass storage receiving companion tags and unique account flag rows.
+ * @return True when both optional sources match the installed vendor index.
+ */
+[[nodiscard]] bool read_visit_sources(const reader::Source& source,
+                                      reader::Scratch& scratch,
+                                      Storage& storage) noexcept {
+    storage.visitSourcesReady = false;
+    storage.companionTags.fill(0);
+    storage.accountFlagRows.fill(domain::kUnavailableAccountFlagRow);
+
+    std::uint32_t classId = 0;
+    tables::Array array{};
+    if (!reader::read_tag(source, scratch, kCompanionIndexRootTag, storage.blob, classId)
+        || classId != kCompanionIndexClass
+        || !tables::find_array_at(
+            std::span<const std::byte>{storage.blob}, tables::kTableArrayDescriptor, array)
+        || array.elementClass != kCompanionIndexRowClass || array.count != storage.indexCount) {
+        return false;
+    }
+    const std::span<const std::byte> index{storage.blob};
+    for (std::uint64_t row = 0; row < array.count; ++row) {
+        tables::IndexRow entry{};
+        if (!tables::index_row(index, array, row, entry)
+            || entry.definitionHash != storage.index[static_cast<std::size_t>(row)].definitionHash
+            || tables::package_of(entry.targetTag) == tables::kAbsentPackageId) {
+            storage.companionTags.fill(0);
+            return false;
+        }
+        storage.companionTags[static_cast<std::size_t>(row)] = entry.targetTag;
+    }
+
+    if (!reader::read_tag(source, scratch, kAccountFlagMapTag, storage.blob, classId)
+        || classId != kAccountFlagMapClass
+        || !read_account_flag_rows(std::span<const std::byte>{storage.blob},
+                                   storage.accountFlagRows)) {
+        storage.companionTags.fill(0);
+        storage.accountFlagRows.fill(domain::kUnavailableAccountFlagRow);
+        return false;
+    }
+    storage.visitSourcesReady = true;
+    return true;
+}
+
+/**
  * Reads every sale row of one definition into the flat bank.
  * @param blob Whole definition blob.
  * @param definition Definition whose sale array was already resolved.
@@ -255,6 +307,17 @@ read_index(const reader::Source& source, reader::Scratch& scratch, Storage& stor
         storage.installedRowCount = installedRowsBefore;
         return false;
     }
+    if (storage.visitSourcesReady) {
+        std::uint32_t companionClass = 0;
+        const std::uint32_t companionTag = storage.companionTags[entry.index];
+        if (reader::read_tag(source, scratch, companionTag, storage.companion, companionClass)
+            && companionClass == kCompanionDefinitionClass) {
+            (void)parse_visit_replies(blob,
+                                      std::span<const std::byte>{storage.companion},
+                                      storage.accountFlagRows,
+                                      definition);
+        }
+    }
     storage.definitions[storage.definitionCount] = definition;
     ++storage.definitionCount;
     return true;
@@ -267,15 +330,22 @@ read_index(const reader::Source& source, reader::Scratch& scratch, Storage& stor
  * @param result Outcome text for the log line.
  */
 void report(const Storage& storage, std::size_t skipped, const char* result) noexcept {
+    std::size_t visitReplies = 0;
+    for (std::size_t row = 0; row < storage.definitionCount; ++row) {
+        visitReplies += storage.definitions[row].visitReplyCount;
+    }
     std::array<char, core::log::kLineCapacity> line{};
     const int written = std::snprintf(line.data(),
                                       line.size(),
                                       "ev=build_data stage=vendors index=%zu definitions=%zu "
-                                      "sale=%zu installed=%zu skipped=%zu result=%s",
+                                      "sale=%zu installed=%zu visit=%zu visit_sources=%u "
+                                      "skipped=%zu result=%s",
                                       storage.indexCount,
                                       storage.definitionCount,
                                       storage.saleRowCount,
                                       storage.installedRowCount,
+                                      visitReplies,
+                                      storage.visitSourcesReady ? 1U : 0U,
                                       skipped,
                                       result);
     if (written > 0) {
@@ -299,6 +369,7 @@ bool build(const reader::Source& source, reader::Scratch& scratch) noexcept {
         report(storage, 0, "index");
         return false;
     }
+    (void)read_visit_sources(source, scratch, storage);
     // Walk the index in order: the catalog requires ascending definition order. A definition that
     // will not read or will not fit costs that vendor alone, never the whole pass.
     std::size_t skipped = 0;

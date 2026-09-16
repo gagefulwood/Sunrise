@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -13,6 +14,10 @@ inline constexpr std::size_t kDefinitionCapacity = kIndexCapacity;
 inline constexpr std::size_t kSaleRowCapacity = 16'384;
 /** Category rows across every definition. The live total is 2,479 and one vendor declares 129. */
 inline constexpr std::size_t kInstalledRowCapacity = 4'096;
+/** One vendor carries at most sixteen supported rowless visit replies. */
+inline constexpr std::size_t kVisitReplyCapacity = 16;
+/** A flag slot with no unique account-bank row uses the native unavailable index. */
+inline constexpr std::uint16_t kUnavailableAccountFlagRow = 0xFFFFU;
 
 /** One vendor index row is 24 bytes: hash at +0, definition tag at +16. */
 inline constexpr std::size_t kIndexRowStride = 24;
@@ -51,6 +56,15 @@ struct IndexEntry {
     std::uint16_t index{};
 };
 
+/** One rowless Complete reply and the two flags that gate its interaction. */
+struct VisitReply {
+    std::uint16_t interactionIndex{};
+    std::uint16_t replyIndex{};
+    std::array<std::uint16_t, 2> flags{};
+    std::array<std::uint16_t, 2> accountFlagRows{kUnavailableAccountFlagRow,
+                                                 kUnavailableAccountFlagRow};
+};
+
 /** One extracted vendor definition and the flat-bank ranges its rows occupy. */
 struct Definition {
     std::uint32_t definitionHash{};
@@ -81,6 +95,8 @@ struct Definition {
     std::uint16_t installedCount{};
     std::uint16_t saleCount{};
     std::uint16_t thirdCount{};
+    std::array<VisitReply, kVisitReplyCapacity> visitReplies{};
+    std::uint16_t visitReplyCount{};
 };
 
 /** A sale row charging nothing carries this instead of a cost item. */

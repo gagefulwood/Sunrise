@@ -2,6 +2,7 @@
 
 #include <limits>
 
+#include "../build_data/vendors/vendor_catalog.h"
 #include "../equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "../investment/store_internal.h"
 #include "state_account_transaction_helpers.h"
@@ -190,6 +191,10 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         || !build_data::find_item_definition_index(transition.successorItemIndex, successor)
         || source.bucketId != items::kPursuitBucketId
         || successor.bucketId != items::kPursuitBucketId
+        || (visit
+            && transition
+                   != items::visit_transition(
+                       source.visitGate, source.questInitialization, source.definitionIndex))
         || (policy == QuestTransitionPolicy::reconstructPowerGate
             && transition
                    != items::power_transition(
@@ -359,6 +364,129 @@ bool commit_quest_transition(const items::QuestTransition& transition,
                                                   transition.objectives[0].valueRow,
                                                   kCompletedVisit))
            && transaction.commit();
+}
+
+/**
+ * Supported visit replies never fall back to category-based item acquisition.
+ * @param vendorIndex Installed vendor ordinal.
+ * @param interactionIndex Selected interaction ordinal.
+ * @return True when a content-linked supported visit owns this interaction.
+ */
+bool vendor_visit_supported(std::uint16_t vendorIndex, std::uint16_t interactionIndex) noexcept {
+    namespace vendors = build_data::vendors;
+    vendors::IndexEntry entry{};
+    vendors::Definition vendor{};
+    if (!vendors::find_index(vendorIndex, entry) || !vendors::find(entry.definitionHash, vendor)) {
+        return false;
+    }
+    for (std::size_t index = 0; index < vendor.visitReplyCount; ++index) {
+        const auto& reply = vendor.visitReplies[index];
+        if (reply.interactionIndex != interactionIndex) {
+            continue;
+        }
+        for (const auto flag : reply.flags) {
+            items::Definition source{};
+            if (items::find_visit_flag(flag, source)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * An interaction's incomplete flag must join to one owned quest and one active account gate.
+ * @param vendorIndex Installed vendor ordinal.
+ * @param interactionIndex Selected interaction ordinal.
+ * @param replyIndex Selected reply ordinal.
+ * @param mutation Receives the prepared visit; cleared on refusal.
+ * @return False when the reply, ownership, gate or transition is unsupported.
+ */
+bool prepare_vendor_visit(std::uint16_t vendorIndex,
+                          std::uint16_t interactionIndex,
+                          std::uint16_t replyIndex,
+                          PendingVendorVisit& mutation) noexcept {
+    const std::lock_guard lock(investment::store::g_mutex);
+    mutation = {};
+    namespace vendors = build_data::vendors;
+    vendors::IndexEntry entry{};
+    vendors::Definition vendor{};
+    AccountState account{};
+    if (!vendors::find_index(vendorIndex, entry) || !vendors::find(entry.definitionHash, vendor)
+        || !investment::store::read_account(account) || !account::valid(account)) {
+        return false;
+    }
+    const auto characterIndex = selected_character_index(account);
+    if (characterIndex >= account.characterCount) {
+        return false;
+    }
+    const vendors::VisitReply* selected = nullptr;
+    for (std::size_t index = 0; index < vendor.visitReplyCount; ++index) {
+        const auto& reply = vendor.visitReplies[index];
+        if (reply.interactionIndex == interactionIndex && reply.replyIndex == replyIndex) {
+            if (selected != nullptr) {
+                return false;
+            }
+            selected = &reply;
+        }
+    }
+    if (selected == nullptr) {
+        return false;
+    }
+    items::QuestTransition transition{};
+    std::uint64_t sourceSoid = 0;
+    const auto& inventory = account.characters[characterIndex].inventory;
+    for (std::size_t index = 0; index < inventory.count; ++index) {
+        items::Definition source{};
+        const auto& owned = inventory.values[index];
+        if (!build_data::find_item_definition_hash(owned.definitionHash, source)
+            || source.visitGate == items::QuestVisitGate{}) {
+            continue;
+        }
+        for (std::size_t flag = 0; flag < selected->flags.size(); ++flag) {
+            if (selected->flags[flag] != source.visitGate.incompleteFlag) {
+                continue;
+            }
+            const auto gateRow = selected->accountFlagRows[1 - flag];
+            std::int32_t gate = 0;
+            if (sourceSoid != 0 || gateRow >= unlocks::kAccountFlagCapacity
+                || !investment::store::read_unlock(
+                    investment::store::Bank::accountFlags, gateRow, gate)
+                || gate != unlocks::kFlagSet) {
+                return false;
+            }
+            transition = items::visit_transition(
+                source.visitGate, source.questInitialization, source.definitionIndex);
+            sourceSoid = owned.instanceSoid;
+        }
+    }
+    if (sourceSoid == 0
+        || !prepare_quest_transition(sourceSoid,
+                                     transition,
+                                     mutation.quest,
+                                     QuestTransitionPolicy::reconstructVendorVisit)) {
+        return false;
+    }
+    mutation.vendorIndex = vendorIndex;
+    mutation.interactionIndex = interactionIndex;
+    mutation.replyIndex = replyIndex;
+    return true;
+}
+
+/**
+ * The selected reply and its gate must still authorize the captured quest transition.
+ * @param mutation Prepared visit; consumed on every exit.
+ * @return True only after credit, stage and inventory commit together.
+ */
+bool commit_vendor_visit(PendingVendorVisit& mutation) noexcept {
+    const PendingConsumption consume{mutation.quest};
+    const std::lock_guard lock(investment::store::g_mutex);
+    PendingVendorVisit rebuilt{};
+    return mutation.quest.prepared
+           && prepare_vendor_visit(
+               mutation.vendorIndex, mutation.interactionIndex, mutation.replyIndex, rebuilt)
+           && mutation.quest.sourceInstanceSoid == rebuilt.quest.sourceInstanceSoid
+           && commit_quest_transition(rebuilt.quest.transition, mutation.quest);
 }
 
 } // namespace sunrise::state

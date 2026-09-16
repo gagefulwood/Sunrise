@@ -8,6 +8,8 @@ namespace sunrise::middleware::web_service::messages::opcode904 {
 
 /** Web Service opcode for vendor pursuit acquisition and interaction replies. */
 inline constexpr std::uint16_t kOpcode = 904;
+/** A rowless interaction carries logical -1 in the biased sale-row field. */
+inline constexpr std::int32_t kAbsentSaleIndex = -1;
 
 /** One vendor request: three biased 16-bit fields then one biased 32-bit sale row. */
 struct Request {
