@@ -18,6 +18,8 @@ enum class QuestTransitionPolicy : std::uint8_t {
     reconstructLinear,
     /** Live first-stage Power gates replace the member without interpreting completion effects. */
     reconstructPowerGate,
+    /** A bound vendor reply credits its sole account-owned visit objective before replacement. */
+    reconstructVendorVisit,
 };
 
 /** Inventory, condition inputs and the decoded contract captured before a stage replacement. */
@@ -50,7 +52,7 @@ struct PendingQuestTransition {
  * @param transition Validated content metadata and save scope for one non-final quest stage.
  * @param mutation Receives the prepared replacement; cleared on failure.
  * @param policy Explicit authorization for unresolved completion effects.
- * @return False when ownership, conditions, saved progress or capacity prevent replacement.
+ * @return False when ownership, policy, saved progress or capacity prevent replacement.
  */
 [[nodiscard]] bool prepare_quest_transition(
     std::uint64_t sourceInstanceSoid,

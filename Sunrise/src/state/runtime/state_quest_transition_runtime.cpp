@@ -16,6 +16,8 @@ using namespace runtime::detail;
 
 /** Pursuits have no equipment slot; the loadout resolver publishes them at slot zero. */
 constexpr std::uint8_t kPursuitEquipmentSlot = 0;
+/** One accepted visit completes the supported binary visit objective. */
+constexpr std::int32_t kCompletedVisit = 1;
 
 /** @return The saved bank for a contract whose scope has already been validated. */
 [[nodiscard]] investment::store::Bank
@@ -134,7 +136,7 @@ quest_bank(const items::QuestTransition& transition) noexcept {
  * @param transition Decoded installed-content contract, not a client request.
  * @param mutation Receives a complete plan, or stays empty on refusal.
  * @param policy Which reconstructed mechanics may omit unresolved completion effects.
- * @return False unless the single replacement fits and all supported objectives are complete.
+ * @return False unless the replacement fits and the policy can satisfy every objective.
  */
 bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
                               const items::QuestTransition& transition,
@@ -145,9 +147,20 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     if (!items::valid(transition) || sourceInstanceSoid == 0
         || (policy != QuestTransitionPolicy::requireNoEffects
             && policy != QuestTransitionPolicy::reconstructLinear
-            && policy != QuestTransitionPolicy::reconstructPowerGate)
+            && policy != QuestTransitionPolicy::reconstructPowerGate
+            && policy != QuestTransitionPolicy::reconstructVendorVisit)
         || (policy == QuestTransitionPolicy::requireNoEffects
             && transition.completionEffect != items::kUnavailableQuestCompletionEffect)) {
+        return false;
+    }
+
+    const bool visit = policy == QuestTransitionPolicy::reconstructVendorVisit;
+    if (visit
+        && (transition.scope != items::QuestInitialization::Scope::account
+            || transition.objectiveCount != 1
+            || transition.objectives[0].input != items::QuestPredicate::Input::accountCounter
+            || transition.objectives[0].minimumValue != kCompletedVisit
+            || transition.objectives[0].valueRow == transition.valueRow)) {
         return false;
     }
 
@@ -161,8 +174,11 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         return false;
     }
     const auto& character = before.characters[characterIndex];
-    if (!resolve_inputs(transition, before, characterIndex, family)
-        || !items::complete(transition, family)) {
+    if (!resolve_inputs(transition, before, characterIndex, family)) {
+        return false;
+    }
+    // Keep the saved input for stale checks; reply credit exists only in the after-image.
+    if (visit ? family.values[0].value != 0 : !items::complete(transition, family)) {
         return false;
     }
     std::int32_t currentValue = 0;
@@ -315,11 +331,14 @@ bool preview_quest_transition(const items::QuestTransition& transition,
     } else {
         afterUnlocks.characterObjectValues[transition.valueRow] = transition.nextValue;
     }
+    if (mutation.policy == QuestTransitionPolicy::reconstructVendorVisit) {
+        afterUnlocks.objectiveValues[transition.objectives[0].valueRow] = kCompletedVisit;
+    }
     return true;
 }
 
 /**
- * The store rolls back both writes if either the inventory or quest value fails.
+ * Inventory, stage and any visit credit share the same rollback boundary.
  * @param transition Current installed-content contract.
  * @param mutation Prepared replacement consumed on every exit.
  * @return True only after the combined transaction commits.
@@ -335,6 +354,10 @@ bool commit_quest_transition(const items::QuestTransition& transition,
            && investment::store::write_account(after)
            && investment::store::write_unlock(
                quest_bank(transition), transition.valueRow, transition.nextValue)
+           && (mutation.policy != QuestTransitionPolicy::reconstructVendorVisit
+               || investment::store::write_unlock(investment::store::Bank::objectiveValues,
+                                                  transition.objectives[0].valueRow,
+                                                  kCompletedVisit))
            && transaction.commit();
 }
 

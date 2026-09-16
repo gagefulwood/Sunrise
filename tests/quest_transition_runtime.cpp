@@ -551,6 +551,91 @@ void verify_account_transition() {
     std::puts("PASS: account-scoped transitions, saved inputs, stale guards and rollback");
 }
 
+/** Checks visit credit, replacement and rollback as one accepted-reply transaction. */
+void verify_vendor_visit() {
+    auto visit = contract();
+    visit.scope = items::QuestInitialization::Scope::account;
+    visit.objectives[0] = {
+        kValueSlot, 1, items::QuestPredicate::Input::accountCounter, kAccountCounterRow};
+    state::PendingQuestTransition pending{};
+    const auto seed = [&] {
+        reset_fixture();
+        check(store::write_unlock(store::Bank::objectiveValues, kQuestRow, kCurrentValue),
+              "seed visit stage");
+    };
+    const auto prepareVisit = [&] {
+        return state::prepare_quest_transition(
+            kSource, visit, pending, Policy::reconstructVendorVisit);
+    };
+    const auto unchanged = [&] {
+        std::int32_t counter = -1, stage = 0;
+        check(store::read_unlock(store::Bank::objectiveValues, kAccountCounterRow, counter)
+                  && counter == 0
+                  && store::read_unlock(store::Bank::objectiveValues, kQuestRow, stage)
+                  && stage == kCurrentValue
+                  && store::account().characters[0].inventory.values[0].instanceSoid == kSource,
+              "visit refusal leaves counter, stage and inventory unchanged");
+    };
+    seed();
+    check(prepareVisit(), "prepare uncredited vendor visit");
+    unchanged();
+    state::AccountState after{};
+    state::unlocks::Table unlocks{};
+    check(state::preview_quest_transition(visit, pending, after, unlocks)
+              && unlocks.objectiveValues[kAccountCounterRow] == 1
+              && unlocks.objectiveValues[kQuestRow] == kNextValue
+              && after.characters[0].inventory.values[0].definitionHash == kSuccessorHash,
+          "visit preview includes credit and successor");
+    unchanged();
+    const auto trigger = "CREATE TEMP TRIGGER reject_visit BEFORE INSERT ON unlocks "
+                         "WHEN NEW.slot="
+                         + std::to_string(kAccountCounterRow)
+                         + " BEGIN SELECT RAISE(ABORT, 'forced visit credit failure'); END";
+    check(store::execute(trigger.c_str()), "install visit-credit failure trigger");
+    check(!state::commit_quest_transition(visit, pending), "credit write failure refuses visit");
+    check(store::execute("DROP TRIGGER reject_visit"), "remove visit-credit trigger");
+    unchanged();
+    check(prepareVisit(), "prepare provisional visit");
+    {
+        store::Transaction publication;
+        check(publication.ready() && state::commit_quest_transition(visit, pending),
+              "provisional visit commits inside publication transaction");
+    }
+    unchanged();
+    check(prepareVisit(), "prepare stale visit");
+    check(store::write_unlock(store::Bank::objectiveValues, kAccountCounterRow, 1),
+          "change visit input after preparation");
+    check(!state::commit_quest_transition(visit, pending) && !prepareVisit(),
+          "stale and already credited visits refused");
+    seed();
+    check(prepareVisit(), "prepare modified visit grant");
+    pending.afterCharacter.inventory.values[0].quantity = 2;
+    check(!state::commit_quest_transition(visit, pending), "altered visit grant refused");
+    unchanged();
+    auto invalid = visit;
+    invalid.objectives[0].minimumValue = 2;
+    check(
+        !state::prepare_quest_transition(kSource, invalid, pending, Policy::reconstructVendorVisit),
+        "multi-action objective cannot receive visit credit");
+    invalid = visit;
+    invalid.objectives[0].valueRow = invalid.valueRow;
+    check(
+        !state::prepare_quest_transition(kSource, invalid, pending, Policy::reconstructVendorVisit),
+        "visit credit cannot overwrite its stage row");
+    check(prepareVisit(), "prepare successful visit");
+    auto replay = pending;
+    std::int32_t saved = 0;
+    check(state::commit_quest_transition(visit, pending)
+              && store::read_unlock(store::Bank::objectiveValues, kAccountCounterRow, saved)
+              && saved == 1 && store::read_unlock(store::Bank::objectiveValues, kQuestRow, saved)
+              && saved == kNextValue
+              && store::account().characters[0].inventory.values[0].definitionHash
+                     == kSuccessorHash,
+          "visit credit, stage and successor persist together");
+    check(!state::commit_quest_transition(visit, replay), "accepted reply replay refused");
+    std::puts("PASS: vendor visit credit, atomic replacement, stale guards and rollback");
+}
+
 /** Checks ownership, missing values, stale counters and joined transaction rollback. */
 void verify_character_objectives() {
     reset_fixture();
@@ -821,6 +906,7 @@ int main(int argc, char** argv) {
     verify_runtime();
     verify_automatic_power_gate();
     verify_account_transition();
+    verify_vendor_visit();
     verify_character_objectives();
     verify_objective_publication();
     verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]
