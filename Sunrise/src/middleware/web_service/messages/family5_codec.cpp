@@ -29,8 +29,6 @@ constexpr std::uint8_t kFlagValueBias = 1;
  * buffer. The row is dropped, never the message.
  */
 constexpr std::uint16_t kMaximumFlagSlot = 23499;
-/** Last value slot the Client's evaluated-state buffer holds. Same raw-offset hazard. */
-constexpr std::uint16_t kMaximumValueSlot = 15499;
 /** Logical flag values run 0 through 2, inclusive. */
 constexpr std::uint8_t kMaximumFlagValue = 2;
 /** Signed unlock values fill one 32-bit field. */
@@ -65,7 +63,7 @@ enum class NestedField : std::size_t {
 [[nodiscard]] std::size_t safe_value_count(const state::Family5State& family) noexcept {
     std::size_t safe = 0;
     for (std::size_t index = 0; index < family.valueCount; ++index) {
-        if (family.values[index].slot <= kMaximumValueSlot) {
+        if (family.values[index].slot < state::kFamily5ValueSlotLimit) {
             ++safe;
         }
     }
@@ -105,7 +103,7 @@ enum class NestedField : std::size_t {
     bool encoded = writer.write(safe_value_count(family), kOverrideCountWidth);
     for (std::size_t index = 0; encoded && index < family.valueCount; ++index) {
         const auto& row = family.values[index];
-        if (row.slot > kMaximumValueSlot) {
+        if (row.slot >= state::kFamily5ValueSlotLimit) {
             continue;
         }
         const std::uint32_t storedSlot = row.slot + kOverrideSlotBias;

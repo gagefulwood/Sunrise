@@ -330,6 +330,65 @@ bool write_character_objective(std::uint64_t characterSoid,
            && row.step() == SQLITE_DONE;
 }
 
+/**
+ * Overlays selected-character counters without changing account-wide saved overrides.
+ * @param output Publication candidate; unchanged on failure.
+ * @return False for an invalid selection, database error or native list/slot overflow.
+ */
+bool project_character_objectives(Family5State& output) noexcept {
+    const std::lock_guard lock(g_mutex);
+    if (output.valueCount > output.values.size() || output.flagCount > output.flags.size()) {
+        return false;
+    }
+    std::uint64_t characterSoid = 0;
+    for (std::size_t slot = 0; slot < g_session.selected.size(); ++slot) {
+        if (!g_session.selected[slot]) {
+            continue;
+        }
+        Statement owner("SELECT soid FROM characters WHERE slot=?");
+        if (characterSoid != 0 || !owner.parameters(slot) || owner.step() != SQLITE_ROW
+            || !owner.column(0, characterSoid) || characterSoid == 0) {
+            return false;
+        }
+    }
+    // Known counter slots must clear on a switch even when the new owner has no saved row.
+    Statement rows("SELECT slots.slot,COALESCE(owned.value,0) "
+                   "FROM (SELECT DISTINCT slot FROM character_objective_values) AS slots "
+                   "LEFT JOIN character_objective_values AS owned "
+                   "ON owned.slot=slots.slot AND owned.character_soid=? ORDER BY slots.slot");
+    if (!rows.parameters(characterSoid)) {
+        return false;
+    }
+    Family5State candidate = output;
+    int result = rows.step();
+    while (result == SQLITE_ROW) {
+        UnlockValueOverride value{};
+        if (!rows.columns(value.slot, value.value) || value.slot >= kFamily5ValueSlotLimit
+            || value.value < 0) {
+            return false;
+        }
+        bool found = false;
+        for (std::size_t index = 0; index < candidate.valueCount; ++index) {
+            if (candidate.values[index].slot == value.slot) {
+                candidate.values[index] = value;
+                found = true;
+            }
+        }
+        if (!found) {
+            if (candidate.valueCount == candidate.values.size()) {
+                return false;
+            }
+            candidate.values[candidate.valueCount++] = value;
+        }
+        result = rows.step();
+    }
+    if (result != SQLITE_DONE) {
+        return false;
+    }
+    output = candidate;
+    return true;
+}
+
 /** Ownership rows use stable positions because their manifest handles depend on order. */
 bool read_entitlements(entitlements::Table& output) noexcept {
     const std::lock_guard lock(g_mutex);

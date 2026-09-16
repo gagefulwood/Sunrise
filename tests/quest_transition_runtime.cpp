@@ -5,6 +5,8 @@
 #include <string>
 
 #include "core/logging/log.h"
+#include "middleware/encoding/bit_reader.h"
+#include "middleware/web_service/messages/family5_codec.h"
 #include "state/investment/store_internal.h"
 #include "state/runtime/state_account_transaction_helpers.h"
 #include "state/runtime/state_quest_transition_runtime.h"
@@ -97,6 +99,146 @@ void reset_fixture() {
     family.values[0] = {kValueSlot, kMinimumValue};
     check(store::write_family5(family), "seed objective input");
     g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
+}
+
+/**
+ * Checks the real Family-5 encoder against its descriptor widths and publication values.
+ * @param family Expected complete replacement, including zero rows used after a switch.
+ */
+void check_publication_wire(const state::Family5State& family) {
+    namespace codec = sunrise::middleware::web_service::messages::family5;
+    namespace bits = sunrise::middleware::encoding::bits;
+    // Native descriptors interleave presence bits with each field and list member.
+    constexpr std::uint8_t kPresenceBits = 1, kIdentityBits = 64, kCountBits = 7, kSlotBits = 16,
+                           kValueBits = 32, kFlagBits = 2;
+    // Signed descriptors add these biases before writing unsigned wire fields.
+    constexpr std::uint64_t kSlotBias = 0x8000, kValueBias = 0x80000000, kFlagBias = 1;
+    // Family 5 has ten fields, with its lists at indices four and five and gate at seven.
+    constexpr std::size_t kFieldCount = 10, kFlagsField = 4, kValuesField = 5, kGateField = 7;
+    std::array<std::byte, codec::kObjectCapacity> bytes{};
+    std::size_t written = 0;
+    check(codec::encode_object(family, 0, bytes, written), "encode publication snapshot");
+    bits::Reader reader({bytes.data(), written});
+    const auto read = [&](std::uint8_t width) {
+        std::uint64_t value = 0;
+        check(reader.read(width, value), "read complete wire field");
+        return value;
+    };
+    for (std::size_t field = 0; field < kFieldCount; ++field) {
+        const auto present = read(kPresenceBits);
+        if (field == 0 || field == 1) {
+            check(present == 1, "identity and clock present");
+            check(read(kIdentityBits) == (field == 0 ? family.objectSoid : 0),
+                  "identity and clock values");
+        } else if (field == kFlagsField || field == kValuesField) {
+            const bool flags = field == kFlagsField;
+            const auto count = flags ? family.flagCount : family.valueCount;
+            check(present == (count == 0 ? 0U : 1U), "list presence");
+            if (count == 0) {
+                continue;
+            }
+            check(read(kCountBits) == count, "no projected rows silently dropped");
+            for (std::size_t index = 0; index < count; ++index) {
+                const auto slot = flags ? family.flags[index].slot : family.values[index].slot;
+                const auto value = flags ? family.flags[index].value + kFlagBias
+                                         : static_cast<std::uint64_t>(
+                                               static_cast<std::int64_t>(family.values[index].value)
+                                               + static_cast<std::int64_t>(kValueBias));
+                check(read(kPresenceBits) == 1 && read(kSlotBits) == slot + kSlotBias
+                          && read(kPresenceBits) == 1
+                          && read(flags ? kFlagBits : kValueBits) == value,
+                      "wire override matches selected owner");
+            }
+        } else if (field == kGateField) {
+            check(present == (family.contentGateArm ? 1U : 0U), "gate preserved");
+            if (present != 0) {
+                check(read(kValueBits) == 1, "content gate bit");
+            }
+        } else {
+            check(present == 0, "unused descriptor absent");
+        }
+    }
+    check(reader.remaining_bits() < 8, "only byte padding remains");
+}
+
+/** Checks selection replacement, unchanged persisted inputs and native publication limits. */
+void verify_objective_publication() {
+    reset_fixture();
+    // Synthetic counter values and unrelated override rows distinguish the two owners.
+    constexpr std::int32_t kFirstProgress = 3, kSecondProgress = 2, kUnrelatedValue = 9;
+    constexpr std::uint16_t kUnrelatedSlot = kValueSlot + 1, kNewSlot = kValueSlot + 2;
+    state::Family5State global{};
+    check(store::read_family5(global), "read raw global snapshot");
+    global.values[global.valueCount++] = {kUnrelatedSlot, kUnrelatedValue};
+    global.flags[global.flagCount++] = {kUnrelatedSlot, 1};
+    global.contentGateArm = true;
+    check(store::write_family5(global), "seed unrelated global rows");
+    check(store::write_character_objective(kCharacter, kValueSlot, kFirstProgress),
+          "seed first owner progress");
+    check(store::write_character_objective(kOtherCharacter, kNewSlot, kSecondProgress),
+          "seed other owner distinct slot");
+    auto publication = global;
+    check(store::project_character_objectives(publication) && publication.valueCount == 3
+              && publication.values[0].value == kFirstProgress
+              && publication.values[1].value == kUnrelatedValue
+              && publication.values[2].slot == kNewSlot && publication.values[2].value == 0
+              && publication.flagCount == global.flagCount && publication.contentGateArm,
+          "selected owner overlays globals and clears another owner's slot");
+    check_publication_wire(publication);
+    store::g_session.selected = {false, true, false};
+    publication = global;
+    check(store::project_character_objectives(publication) && publication.values[0].value == 0
+              && publication.values[2].value == kSecondProgress,
+          "switch cannot borrow the previous character or global progress");
+    check_publication_wire(publication);
+    std::optional<std::int32_t> missing;
+    check(store::read_character_objective(kOtherCharacter, kValueSlot, missing) && !missing,
+          "publication zero does not create earned or saved credit");
+    store::g_session.selected = {};
+    publication = global;
+    check(store::project_character_objectives(publication) && publication.values[0].value == 0
+              && publication.values[2].value == 0,
+          "no selection clears counters without borrowing roster slot zero");
+    check_publication_wire(publication);
+    state::Family5State saved{};
+    check(store::read_family5(saved) && saved.valueCount == global.valueCount
+              && saved.values[0].value == kMinimumValue,
+          "publication never changes saved global overrides");
+    check(store::write_character_objective(kCharacter, kValueSlot, 0), "save explicit zero");
+    store::g_session.selected = {true, false, false};
+    publication = global;
+    check(store::project_character_objectives(publication) && publication.values[0].value == 0,
+          "saved zero is published");
+    store::g_session.selected = {true, true, false};
+    publication = global;
+    check(!store::project_character_objectives(publication)
+              && publication.values[0].value == kMinimumValue,
+          "ambiguous selection leaves output unchanged");
+    store::g_session.selected = {false, false, true};
+    check(!store::project_character_objectives(publication), "missing selected owner rejected");
+    store::g_session.selected = {true, false, false};
+    check(store::write_character_objective(kCharacter, state::kFamily5ValueSlotLimit, 1),
+          "storage mapping can exceed native projection range");
+    check(!store::project_character_objectives(publication)
+              && publication.values[0].value == kMinimumValue,
+          "unpublishable slot fails without partial output");
+    reset_fixture();
+    check(store::write_character_objective(kCharacter, state::kFamily5ValueSlotLimit - 1, 1),
+          "seed last native slot");
+    publication = {};
+    publication.valueCount = publication.values.size();
+    for (std::size_t index = 0; index < publication.valueCount; ++index) {
+        publication.values[index] = {static_cast<std::uint16_t>(index), kUnrelatedValue};
+    }
+    check(!store::project_character_objectives(publication)
+              && publication.values[0].value == kUnrelatedValue,
+          "full combined list refuses an extra slot");
+    --publication.valueCount;
+    check(store::project_character_objectives(publication)
+              && publication.valueCount == publication.values.size(),
+          "exact native row capacity and last native slot accepted");
+    check_publication_wire(publication);
+    std::puts("PASS: selected-character objective projection and Family-5 encoding");
 }
 
 /** @return A prepared reconstruction without changing the database. */
@@ -485,6 +627,7 @@ int main(int argc, char** argv) {
           "new in-memory store");
     verify_runtime();
     verify_character_objectives();
+    verify_objective_publication();
     verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]
                                                                                 : nullptr);
     if (argc > 3) {
