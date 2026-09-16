@@ -7,6 +7,7 @@
 #include "core/logging/log.h"
 #include "middleware/encoding/bit_reader.h"
 #include "middleware/web_service/messages/family5_codec.h"
+#include "state/equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "state/investment/store_internal.h"
 #include "state/runtime/state_account_transaction_helpers.h"
 #include "state/runtime/state_quest_transition_runtime.h"
@@ -32,6 +33,11 @@ constexpr std::uint16_t kQuestRow = 12, kValueSlot = 17;
 constexpr std::int32_t kMinimumValue = 70000;
 /** Fixture capacity is adjustable to test the State boundary's resolver rejection. */
 std::size_t g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
+/** The State fixture controls resolver output; production derives it from equipped items. */
+std::int32_t g_characterPower = kMinimumValue;
+std::int32_t g_powerMinimum = kMinimumValue;
+bool g_powerAvailable = true;
+bool g_powerGateInstalled = false;
 
 /** @param passed Condition to enforce. @param label Identifies the failed check. */
 void check(bool passed, const char* label) {
@@ -75,6 +81,10 @@ items::QuestTransition contract() {
 
 /** Resets only the disposable in-memory fixture between independent failure cases. */
 void reset_fixture() {
+    g_characterPower = kMinimumValue;
+    g_powerMinimum = kMinimumValue;
+    g_powerAvailable = true;
+    g_powerGateInstalled = false;
     state::AccountState account{};
     account.primarySoid = kAccount;
     account.characterCount = 2;
@@ -99,6 +109,84 @@ void reset_fixture() {
     family.values[0] = {kValueSlot, kMinimumValue};
     check(store::write_family5(family), "seed objective input");
     g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
+}
+
+/** Seeds a catalogue-backed gate and a misleading global Power override in a disposable save. */
+void power_fixture() {
+    reset_fixture();
+    g_powerGateInstalled = true;
+    state::Family5State family{};
+    family.valueCount = 1;
+    family.values[0] = {items::kQuestCharacterPowerSlot, kMinimumValue};
+    check(store::write_family5(family), "seed global Power override");
+}
+
+/** Checks live gate discovery, derived inputs and rollback before publication. */
+void verify_automatic_power_gate() {
+    state::PendingQuestTransition pending{};
+    power_fixture();
+    --g_characterPower;
+    check(!state::prepare_next_power_quest_transition(pending),
+          "seeded global Power cannot satisfy a live gate");
+    ++g_characterPower;
+    g_powerAvailable = false;
+    check(!state::prepare_next_power_quest_transition(pending),
+          "missing gear resolution refuses gate");
+    g_powerAvailable = true;
+    check(state::prepare_next_power_quest_transition(pending)
+              && pending.policy == Policy::reconstructPowerGate,
+          "installed gate uses derived Power at authored threshold");
+    --g_characterPower;
+    check(!state::commit_quest_transition(pending.transition, pending),
+          "stale derived Power refused");
+
+    power_fixture();
+    check(state::prepare_next_power_quest_transition(pending), "prepare stale gate");
+    --g_powerMinimum;
+    check(!state::commit_quest_transition(pending.transition, pending),
+          "changed live metadata refused");
+
+    power_fixture();
+    {
+        store::Transaction publication;
+        check(publication.ready() && state::prepare_next_power_quest_transition(pending)
+                  && state::commit_quest_transition(pending.transition, pending),
+              "provisional transition before frame construction");
+        // Omitting the outer commit models a refused or oversized publication frame.
+    }
+    std::int32_t stage = 0;
+    check(store::account().characters[0].inventory.values[0].instanceSoid == kSource
+              && store::read_unlock(store::Bank::characterObjectValues, kQuestRow, stage)
+              && stage == kCurrentValue,
+          "publication refusal rolls back item and active stage");
+    check(state::prepare_next_power_quest_transition(pending), "retry provisional rollback");
+    {
+        store::Transaction publication;
+        check(publication.ready() && state::commit_quest_transition(pending.transition, pending)
+                  && publication.commit(),
+              "publish and commit transition together");
+    }
+    check(store::account().characters[0].inventory.values[0].definitionHash == kSuccessorHash
+              && store::read_unlock(store::Bank::characterObjectValues, kQuestRow, stage)
+              && stage == kNextValue,
+          "automatic stage persisted");
+    check(!state::prepare_next_power_quest_transition(pending),
+          "later stage not automatically skipped");
+    power_fixture();
+    g_powerGateInstalled = false;
+    check(!state::prepare_next_power_quest_transition(pending), "absent catalogue gate refused");
+    power_fixture();
+    check(store::write_unlock(store::Bank::characterObjectValues, kQuestRow, kNextValue),
+          "seed inactive first stage");
+    check(!state::prepare_next_power_quest_transition(pending), "inactive owned stage refused");
+    power_fixture();
+    auto account = store::account();
+    account.characters[0].selected = false;
+    account.characters[1].selected = true;
+    check(store::write_account(account), "switch fixture owner");
+    check(!state::prepare_next_power_quest_transition(pending), "other owner's quest not advanced");
+    std::puts("PASS: automatic Power gate, real-input boundary, metadata guards and publication "
+              "rollback");
 }
 
 /**
@@ -551,6 +639,11 @@ bool find_item_definition_index(std::uint16_t index, items::Definition& definiti
     definition.definitionIndex = index;
     definition.definitionHash = index == 0 ? kSourceHash : kSuccessorHash;
     definition.bucketId = items::kPursuitBucketId;
+    if (g_powerGateInstalled && index == 0) {
+        definition.questInitialization = {
+            kCurrentValue, kQuestRow, items::QuestInitialization::Scope::character};
+        definition.powerGate = {g_powerMinimum, kNextValue, 1, contract().completionEffect};
+    }
     return true;
 }
 
@@ -568,6 +661,19 @@ bool find_configured_item_detail(std::uint16_t, items::details::Definition&) noe
 }
 
 } // namespace sunrise::state::build_data
+
+namespace sunrise::state::equipment::light::resolution {
+
+/** Controlled character-Power input tests State authority, not the equipment calculation. */
+bool character_light(const AccountState& account,
+                     std::size_t characterIndex,
+                     std::int32_t& light) noexcept {
+    light = g_characterPower;
+    return g_powerAvailable && characterIndex < account.characterCount
+           && account.characters[characterIndex].selected;
+}
+
+} // namespace sunrise::state::equipment::light::resolution
 
 namespace sunrise::core::log {
 
@@ -626,6 +732,7 @@ int main(int argc, char** argv) {
                       settingsDefaults),
           "new in-memory store");
     verify_runtime();
+    verify_automatic_power_gate();
     verify_character_objectives();
     verify_objective_publication();
     verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]

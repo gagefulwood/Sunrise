@@ -2,6 +2,7 @@
 
 #include <limits>
 
+#include "../equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "../investment/store_internal.h"
 #include "state_account_transaction_helpers.h"
 
@@ -19,12 +20,14 @@ constexpr std::uint8_t kPursuitEquipmentSlot = 0;
 /**
  * Resolves counted progress by character identity, never by an account-wide fallback.
  * @param transition Validated character quest contract.
- * @param characterSoid Selected character's stable identity.
+ * @param account Locked account snapshot containing the selected character.
+ * @param characterIndex Selected character's roster index.
  * @param family Receives resolved predicate inputs; used only on success.
  * @return False for absent, duplicate or unreadable inputs.
  */
 [[nodiscard]] bool resolve_inputs(const items::QuestTransition& transition,
-                                  std::uint64_t characterSoid,
+                                  const AccountState& account,
+                                  std::size_t characterIndex,
                                   Family5State& family) noexcept {
     Family5State global{};
     family = {};
@@ -36,9 +39,15 @@ constexpr std::uint8_t kPursuitEquipmentSlot = 0;
         std::optional<std::int32_t> value;
         if (predicate.input == items::QuestPredicate::Input::characterCounter) {
             if (!investment::store::read_character_objective(
-                    characterSoid, predicate.valueSlot, value)) {
+                    account.characters[characterIndex].soid, predicate.valueSlot, value)) {
                 return false;
             }
+        } else if (predicate.input == items::QuestPredicate::Input::characterPower) {
+            std::int32_t power = 0;
+            if (!equipment::light::resolution::character_light(account, characterIndex, power)) {
+                return false;
+            }
+            value = power;
         } else {
             for (std::size_t row = 0; row < global.valueCount; ++row) {
                 if (global.values[row].slot == predicate.valueSlot) {
@@ -109,7 +118,7 @@ constexpr std::uint8_t kPursuitEquipmentSlot = 0;
  * @param sourceInstanceSoid Owned current-stage item to replace.
  * @param transition Decoded installed-content contract, not a client request.
  * @param mutation Receives a complete plan, or stays empty on refusal.
- * @param policy Whether unresolved effects may be omitted for a reconstruction test.
+ * @param policy Which reconstructed mechanics may omit unresolved completion effects.
  * @return False unless the single replacement fits and all supported objectives are complete.
  */
 bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
@@ -120,7 +129,8 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     mutation = {};
     if (!items::valid(transition) || sourceInstanceSoid == 0
         || (policy != QuestTransitionPolicy::requireNoEffects
-            && policy != QuestTransitionPolicy::reconstructLinear)
+            && policy != QuestTransitionPolicy::reconstructLinear
+            && policy != QuestTransitionPolicy::reconstructPowerGate)
         || (policy == QuestTransitionPolicy::requireNoEffects
             && transition.completionEffect != items::kUnavailableQuestCompletionEffect)) {
         return false;
@@ -136,7 +146,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         return false;
     }
     const auto& character = before.characters[characterIndex];
-    if (!resolve_inputs(transition, character.soid, family)
+    if (!resolve_inputs(transition, before, characterIndex, family)
         || !items::complete(transition, family)) {
         return false;
     }
@@ -150,6 +160,10 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         || !build_data::find_item_definition_index(transition.successorItemIndex, successor)
         || source.bucketId != items::kPursuitBucketId
         || successor.bucketId != items::kPursuitBucketId
+        || (policy == QuestTransitionPolicy::reconstructPowerGate
+            && transition
+                   != items::power_transition(
+                       source.powerGate, source.questInitialization, source.definitionIndex))
         || !unique_stage(character, source.definitionHash, successor.definitionHash)
         || !find_character_item_location(character, sourceInstanceSoid, location)
         || location.equipped || character.inventory.values[location.index].quantity != 1
@@ -214,6 +228,42 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     mutation.policy = policy;
     mutation.prepared = true;
     return true;
+}
+
+/**
+ * Selects one eligible first-stage Power gate from installed metadata under the save lock.
+ * @param mutation Receives a prepared replacement; empty when none can advance.
+ * @return True when one owned first stage can advance using current character Power.
+ */
+bool prepare_next_power_quest_transition(PendingQuestTransition& mutation) noexcept {
+    const std::lock_guard lock(investment::store::g_mutex);
+    mutation = {};
+    AccountState account{};
+    if (!investment::store::read_account(account) || !account::valid(account)) {
+        return false;
+    }
+    const auto characterIndex = selected_character_index(account);
+    if (characterIndex >= account.characterCount) {
+        return false;
+    }
+    const auto& inventory = account.characters[characterIndex].inventory;
+    for (std::size_t index = 0; index < inventory.count; ++index) {
+        items::Definition source{};
+        const auto& owned = inventory.values[index];
+        if (!build_data::find_item_definition_hash(owned.definitionHash, source)
+            || source.powerGate == items::QuestPowerGate{}) {
+            continue;
+        }
+        const auto transition = items::power_transition(
+            source.powerGate, source.questInitialization, source.definitionIndex);
+        if (prepare_quest_transition(owned.instanceSoid,
+                                     transition,
+                                     mutation,
+                                     QuestTransitionPolicy::reconstructPowerGate)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**

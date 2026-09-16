@@ -9,6 +9,7 @@
 #include "../../../../state/activity/destination/definition.h"
 #include "../../../../state/activity/runtime.h"
 #include "../../../../state/runtime/runtime.h"
+#include "../../../../state/runtime/state_quest_transition_runtime.h"
 #include "../internal.h"
 #include "../push/activity/activity_keepalive_push.h"
 #include "queuez_state_validation.h"
@@ -118,6 +119,66 @@ selected_character(const state::AccountState& account) noexcept {
     session.queuez = acquisition.after;
     bap::arm_account_resync_elsewhere(session);
     bap::arm_acquisition_presentation_hold(session);
+    return true;
+}
+
+/**
+ * Stage replacement stays private until the existing full-inventory refresh fits the response.
+ * @param session Authenticated peer with an active Family-4 subscription.
+ * @param scratch Lock-owned frame buffers.
+ * @param response Caller-owned output; unchanged on failure.
+ * @param written Receives the completed frame length on success.
+ * @param touchesScratch Set when this pass uses transform buffers.
+ * @return True only after state commit and complete frame publication.
+ */
+[[nodiscard]] bool consume_quest_advancement(Session& session,
+                                             Scratch& scratch,
+                                             std::span<std::byte> response,
+                                             std::size_t& written,
+                                             bool& touchesScratch) noexcept {
+    if (!session.questAdvancementArmed || !session.queuez.family4Active
+        || GetTickCount64() < session.acquisitionPresentationUntilTick) {
+        return false;
+    }
+    state::investment::store::Transaction transaction;
+    if (!transaction.ready()) {
+        return false;
+    }
+    state::PendingQuestTransition pending{};
+    if (!state::prepare_next_power_quest_transition(pending)) {
+        session.questAdvancementArmed = false;
+        return false;
+    }
+    if (pending.accountSoid != session.queuez.family4RootSoid
+        || !state::commit_quest_transition(pending.transition, pending)) {
+        return false;
+    }
+    // The nested State commit is provisional until this transaction commits after framing.
+    touchesScratch = true;
+    auto nextSendNonce = session.sendNonce;
+    queuez::SessionState after{};
+    std::size_t framedSize = 0;
+    if (!push::append_account_resync_notification(scratch,
+                                                  session.queuez,
+                                                  {},
+                                                  session.sessionKey,
+                                                  nextSendNonce,
+                                                  scratch.framed,
+                                                  framedSize,
+                                                  after)
+        || framedSize == 0 || framedSize > response.size() || !queuez::valid(after)
+        || !transaction.commit()) {
+        return false;
+    }
+    std::copy_n(scratch.framed.begin(), framedSize, response.begin());
+    written = framedSize;
+    session.sendNonce = nextSendNonce;
+    session.queuez = after;
+    bap::arm_account_resync_elsewhere(session);
+    bap::notify_investment_publication();
+    core::log::write(core::log::Channel::server,
+                     core::log::Level::debug,
+                     "ev=quest stage=automatic_transition result=ok");
     return true;
 }
 
@@ -688,6 +749,9 @@ bool consume_deferred(Session& session,
         if (published) {
             return true;
         }
+    }
+    if (consume_quest_advancement(session, scratch, response, written, touchesScratch)) {
+        return true;
     }
     if (consume_seasonal_experience_presentation(
             session, scratch, response, written, touchesScratch)) {

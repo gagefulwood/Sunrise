@@ -451,6 +451,8 @@ struct Session {
     bool accountMutationPublished{};
     /** True while another peer's account mutation still needs a full local refresh. */
     bool accountResyncArmed{};
+    /** Check once on first subscription, then only after account mutations or character changes. */
+    bool questAdvancementArmed{true};
     /**
      * Tick count after which the owed ability-icon refresh may go out. A subclass selection
      * invalidates the published ability buckets and the rebuild runs off the Client

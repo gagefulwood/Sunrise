@@ -16,6 +16,8 @@ enum class QuestTransitionPolicy : std::uint8_t {
     requireNoEffects,
     /** Explicit test policy: replace the member without applying completion effects. */
     reconstructLinear,
+    /** Live first-stage Power gates replace the member without interpreting completion effects. */
+    reconstructPowerGate,
 };
 
 /** Inventory, condition inputs and the decoded contract captured before a stage replacement. */
@@ -33,6 +35,14 @@ struct PendingQuestTransition {
     QuestTransitionPolicy policy{};
     bool prepared{};
 };
+
+/**
+ * Selects one eligible first-stage Power gate from the selected character's installed item
+ * metadata.
+ * @param mutation Receives a prepared replacement; empty when none can advance.
+ * @return True when one owned first stage can advance using current character Power.
+ */
+[[nodiscard]] bool prepare_next_power_quest_transition(PendingQuestTransition& mutation) noexcept;
 
 /**
  * The caller supplies a decoded installed-content contract, never a client-authored plan.
