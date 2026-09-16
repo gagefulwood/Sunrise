@@ -106,6 +106,7 @@
     <ClCompile Include="src\middleware\content\packages\tables\quest_transition_reader.cpp" />
     <ClInclude Include="src\middleware\content\packages\tables\quest_transition_reader.h" />
     <ClInclude Include="src\state\build_data\items\quest_transition.h" />
+    <ClInclude Include="src\state\build_data\items\quest_counter_binding.h" />
     <ClInclude Include="src\state\runtime\state_quest_transition_runtime.h" />
     <ClCompile Include="src\state\investment\investment_inventory_store.cpp" />
     <ClCompile Include="src\state\investment\investment_store_boot.cpp" />

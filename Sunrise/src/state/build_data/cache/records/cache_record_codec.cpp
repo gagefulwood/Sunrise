@@ -52,7 +52,7 @@ bool decode(const NamedRecord& record, content::Definition& value) noexcept {
  * Encodes one installed-build item mapping with its padding zeroed.
  * @param value Runtime row.
  * @param record Receives the packed disk row; use only on success.
- * @return True for empty quest state or a supported first-step value, scope, and bank row.
+ * @return True when acquisition and counter bindings fit their saved and native banks.
  */
 bool encode(const items::Definition& value, ItemRecord& record) noexcept {
     record = {
@@ -68,15 +68,19 @@ bool encode(const items::Definition& value, ItemRecord& record) noexcept {
         value.questInitialization.value,
         value.questInitialization.row,
         static_cast<std::uint8_t>(value.questInitialization.scope),
+        value.primeDecryption.stageValue,
+        value.primeDecryption.threshold,
+        value.primeDecryption.stageRow,
+        value.primeDecryption.valueSlot,
     };
-    return items::valid(value.questInitialization);
+    return items::valid(value.questInitialization) && items::valid(value.primeDecryption);
 }
 
 /**
  * Cached quest state must fit the same bank limits as freshly read item metadata.
  * @param record Packed disk row.
  * @param value Receives the runtime item mapping; use only on success.
- * @return True for empty quest state or a supported first-step value, scope, and bank row.
+ * @return True when acquisition and counter bindings fit their saved and native banks.
  */
 bool decode(const ItemRecord& record, items::Definition& value) noexcept {
     value = {record.definitionHash,
@@ -90,8 +94,12 @@ bool decode(const ItemRecord& record, items::Definition& value) noexcept {
              record.linkedPlugIndex,
              {record.questInitialValue,
               record.questValueRow,
-              static_cast<items::QuestInitialization::Scope>(record.questValueScope)}};
-    return items::valid(value.questInitialization);
+              static_cast<items::QuestInitialization::Scope>(record.questValueScope)},
+             {record.primeStageValue,
+              record.primeThreshold,
+              record.primeStageRow,
+              record.primeValueSlot}};
+    return items::valid(value.questInitialization) && items::valid(value.primeDecryption);
 }
 
 /** Encodes one collectible ordinal and its optional item link. */

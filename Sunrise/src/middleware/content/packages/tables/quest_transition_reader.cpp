@@ -47,6 +47,10 @@ constexpr std::uint64_t kCounterInstructionCount = 1;
 constexpr std::uint32_t kUnusedInstructionOperand = 0xFFFFFFFFU;
 /** Boolean objective expressions complete only at threshold one. */
 constexpr std::int32_t kBooleanObjectiveThreshold = 1;
+/** Build 86657's "Prime Engrams decrypted" objective; its counter slot is read from content. */
+constexpr std::uint32_t kPrimeDecryptionObjectiveHash = 4243255788U;
+/** The authored objective hash is the first field of each native objective row. */
+constexpr std::size_t kObjectiveHashOffset = 0;
 /**
  * Reads a direct counter or a VALUE, signed CONSTANT, GE predicate.
  * @param table Objective-table bytes.
@@ -269,6 +273,62 @@ bool read_quest_transition(std::span<const std::byte> definition,
     }
     output = candidate;
     return true;
+}
+
+/**
+ * Binds only a supported counted objective; unknown effects do not authorize progress.
+ * @param definition Current pursuit item definition.
+ * @param itemIndex Current item's item-table index.
+ * @param parent Quest-set owner selected by quest_parent.
+ * @param itemCount Exclusive item-table bound.
+ * @param valueMap Installed unlock value maps.
+ * @param objectiveTable Dense objective definition table.
+ * @return Empty for absent, ambiguous, or unsupported metadata.
+ */
+state::build_data::items::QuestCounterBinding
+read_prime_decryption_binding(std::span<const std::byte> definition,
+                              std::uint16_t itemIndex,
+                              std::span<const std::byte> parent,
+                              std::size_t itemCount,
+                              std::span<const std::byte> valueMap,
+                              std::span<const std::byte> objectiveTable) noexcept {
+    using Binding = state::build_data::items::QuestCounterBinding;
+    Transition transition{};
+    std::size_t block = 0;
+    Array references{}, rows{};
+    if (!read_quest_transition(
+            definition, itemIndex, parent, itemCount, valueMap, objectiveTable, transition)
+        || !detail::read_quest_objectives(definition, block, references)
+        || !find_array(objectiveTable, kObjectiveRowClass, rows)) {
+        return {};
+    }
+    Binding binding{};
+    for (std::size_t index = 0; index < transition.objectiveCount; ++index) {
+        std::uint16_t objectiveIndex = 0;
+        std::uint32_t hash = 0;
+        std::size_t row = 0;
+        if (!read(definition, references.dataOffset + index * sizeof objectiveIndex, objectiveIndex)
+            || !element_offset(
+                rows.dataOffset, rows.count, kObjectiveRowStride, objectiveIndex, row)
+            || !read(objectiveTable, row + kObjectiveHashOffset, hash)) {
+            return {};
+        }
+        if (hash != kPrimeDecryptionObjectiveHash) {
+            continue;
+        }
+        const Predicate& predicate = transition.objectives[index];
+        if (binding != Binding{} || predicate.input != Predicate::Input::characterCounter) {
+            return {};
+        }
+        binding = {transition.currentValue,
+                   predicate.minimumValue,
+                   transition.valueRow,
+                   predicate.valueSlot};
+        if (!state::build_data::items::valid(binding)) {
+            return {};
+        }
+    }
+    return binding;
 }
 
 } // namespace sunrise::middleware::content::packages::tables::items

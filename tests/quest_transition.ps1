@@ -20,6 +20,7 @@ $questSources = @(
     'Sunrise/src/middleware/content/packages/tables/quest_initialization_reader.cpp',
     'Sunrise/src/middleware/content/packages/tables/quest_transition_reader.cpp',
     'Sunrise/src/middleware/content/packages/tables/definition_index_table.cpp',
+    'Sunrise/src/state/build_data/cache/records/cache_record_codec.cpp',
     'Sunrise/src/state/runtime/state_quest_transition_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_identity_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_equipment_runtime.cpp',

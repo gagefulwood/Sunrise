@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <span>
 
+#include "../../../../state/build_data/items/quest_counter_binding.h"
 #include "../../../../state/build_data/items/quest_transition.h"
 
 namespace sunrise::middleware::content::packages::tables::items {
@@ -27,5 +28,23 @@ read_quest_transition(std::span<const std::byte> definition,
                       std::span<const std::byte> valueMap,
                       std::span<const std::byte> objectiveTable,
                       state::build_data::items::QuestTransition& output) noexcept;
+
+/**
+ * Binds the supported Prime-decryption objective to its installed stage and counter.
+ * @param definition Current pursuit item definition.
+ * @param itemIndex Current item's item-table index.
+ * @param parent Quest-set owner selected by quest_parent.
+ * @param itemCount Exclusive item-table bound.
+ * @param valueMap Installed unlock value maps.
+ * @param objectiveTable Dense objective definition table.
+ * @return Empty for absent, ambiguous, or unsupported metadata.
+ */
+[[nodiscard]] state::build_data::items::QuestCounterBinding
+read_prime_decryption_binding(std::span<const std::byte> definition,
+                              std::uint16_t itemIndex,
+                              std::span<const std::byte> parent,
+                              std::size_t itemCount,
+                              std::span<const std::byte> valueMap,
+                              std::span<const std::byte> objectiveTable) noexcept;
 
 } // namespace sunrise::middleware::content::packages::tables::items

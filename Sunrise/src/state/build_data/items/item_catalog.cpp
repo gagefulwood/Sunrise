@@ -104,7 +104,9 @@ bool valid(std::span<const Definition> definitions) noexcept {
     std::array<bool, kDefinitionCapacity> occupied{};
     for (const Definition& definition : definitions) {
         if (definition.definitionIndex >= definitions.size() || occupied[definition.definitionIndex]
-            || !valid(definition.questInitialization)
+            || !valid(definition.questInitialization) || !valid(definition.primeDecryption)
+            || (definition.primeDecryption != QuestCounterBinding{}
+                && definition.bucketId != kPursuitBucketId)
             || (definition.questInitialization.scope != QuestInitialization::Scope::none
                 && definition.bucketId != kPursuitBucketId)) {
             return false;

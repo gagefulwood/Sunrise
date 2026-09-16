@@ -2,6 +2,7 @@
 #include <span>
 
 #include "../../../../middleware/content/packages/tables/quest_initialization_reader.h"
+#include "../../../../middleware/content/packages/tables/quest_transition_reader.h"
 #include "../../../../state/build_data/items/catalysts/exotic_catalyst_builder.h"
 #include "../../../../state/build_data/items/details/item_detail_catalog.h"
 #include "../../../../state/build_data/runtime.h"
@@ -62,6 +63,17 @@ bool build_item_rows(const reader::Source& source,
                      std::size_t& rowCount,
                      const char*& reason) noexcept {
     const bool needDefinitions = !state::build_data::item_definitions_ready();
+    if (needDefinitions) {
+        std::uint32_t objectiveTag = 0, objectiveClass = 0;
+        if (!tables::slot_tag(storage.root, tables::kObjectiveTableSlot, objectiveTag)
+            || objectiveTag == 0
+            || !reader::read_tag(
+                source, storage.scratch, objectiveTag, storage.objectiveTable, objectiveClass)
+            || objectiveClass != tables::kObjectiveTableClass) {
+            reason = "objective_table";
+            return false;
+        }
+    }
     const bool needDetails = !state::build_data::configured_item_details_ready();
     const bool needSocketPlugs = !state::build_data::socket_plug_rules_ready();
     const bool needCatalysts = !exotic_catalysts_settled();
@@ -115,6 +127,7 @@ bool build_item_rows(const reader::Source& source,
         const std::uint32_t plugCategoryHash =
             corrected_plug_category(item.definitionHash, item.plugCategoryHash);
         build_items::QuestInitialization quest{};
+        build_items::QuestCounterBinding primeDecryption{};
         const auto parentIndex = tables::items::quest_parent(storage.definition);
         if (needDefinitions && itemClass == tables::kItemDefinitionClass
             && parentIndex < table.count) {
@@ -138,6 +151,13 @@ bool build_item_rows(const reader::Source& source,
                                                              parent,
                                                              static_cast<std::size_t>(table.count),
                                                              storage.questValueMap);
+                primeDecryption = tables::items::read_prime_decryption_binding(
+                    storage.definition,
+                    item.definitionIndex,
+                    parent,
+                    static_cast<std::size_t>(table.count),
+                    storage.questValueMap,
+                    storage.objectiveTable);
             }
         }
         storage.rows[rowCount++] =
@@ -150,7 +170,8 @@ bool build_item_rows(const reader::Source& source,
                                                  plugCategoryHash,
                                                  item.rollSetIndex,
                                                  item.linkedPlugIndex,
-                                                 quest};
+                                                 quest,
+                                                 primeDecryption};
         if (needSocketRows) {
             storage.specialPlugCategories[item.definitionIndex] =
                 special_plug_category(plugCategoryHash);

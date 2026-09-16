@@ -8,12 +8,15 @@
 
 #include "../Sunrise/src/middleware/content/packages/tables/quest_initialization_reader.h"
 #include "../Sunrise/src/middleware/content/packages/tables/quest_transition_reader.h"
+#include "../Sunrise/src/state/build_data/cache/records/codec.h"
 
 namespace {
 
+using sunrise::middleware::content::packages::tables::items::read_prime_decryption_binding;
 using sunrise::middleware::content::packages::tables::items::read_quest_transition;
 using sunrise::state::Family5State;
 using sunrise::state::build_data::items::complete;
+using sunrise::state::build_data::items::QuestCounterBinding;
 using sunrise::state::build_data::items::QuestPredicate;
 using sunrise::state::build_data::items::QuestTransition;
 using sunrise::state::build_data::items::valid;
@@ -402,6 +405,43 @@ void verify_generated() {
     rejected(value, "counter with extra instruction accepted");
 }
 
+/** Checks event identity, direct-counter requirements and cached binding validation. */
+void verify_binding() {
+    Fixture value = fixture();
+    const auto binding = [&] {
+        return read_prime_decryption_binding(value.definition,
+                                             kSourceItem,
+                                             value.definition,
+                                             kItemCount,
+                                             value.valueMap,
+                                             value.objectiveTable);
+    };
+    check(binding() == QuestCounterBinding{}, "unrelated objective bound to Prime event");
+    // This is the authored Prime-decryption objective hash, not its installed row or counter slot.
+    put(value.objectiveTable, kObjectiveRow, std::uint32_t{4243255788U});
+    check(binding() == QuestCounterBinding{}, "comparison accepted as earned counter");
+    put_array(value.objectiveTable, kObjectiveRow + 8, 0x320, 1, 0x80807D31U);
+    put(value.objectiveTable, kObjectiveRow + 0x30, kEngramCount);
+    const QuestCounterBinding expected{100, kEngramCount, 0, kObjectiveValueSlot};
+    check(binding() == expected, "binding lost metadata stage or counter");
+    namespace cache = sunrise::state::build_data::cache::records;
+    sunrise::state::build_data::items::Definition item{}, decoded{};
+    item.primeDecryption = expected;
+    cache::ItemRecord record{};
+    check(cache::encode(item, record) && cache::decode(record, decoded)
+              && decoded.primeDecryption == expected,
+          "cached binding round trip");
+    record.primeThreshold = -1;
+    check(!cache::decode(record, decoded), "negative cached threshold accepted");
+    put(value.objectiveTable, kObjectiveRow + 0x30, std::int32_t{0});
+    check(binding() == QuestCounterBinding{}, "zero threshold accepted");
+    put(value.objectiveTable, kObjectiveRow + 0x30, kEngramCount);
+    put(value.objectiveTable,
+        kExpressionRows + 4,
+        std::uint32_t{sunrise::state::kFamily5ValueSlotLimit});
+    check(binding() == QuestCounterBinding{}, "unpublishable slot accepted");
+}
+
 /**
  * Tests the reader against retained content independently of the synthetic builder.
  * @param retainedDirectory Read-only directory containing the retained item and table blobs.
@@ -442,6 +482,9 @@ void verify_retained(const char* retainedDirectory) {
     expected.objectiveCount = 2;
     expected.completionEffect = 11484;
     check(output == expected, "retained counter requirements or completion reference differ");
+    check(read_prime_decryption_binding(second, 15285, second, 15424, valueMap, objectives)
+              == QuestCounterBinding{200, 2, 526, 13081},
+          "retained Prime objective identity or binding differs");
     check(!complete(output, Family5State{}), "decoding metadata supplied missing earned progress");
     const auto third = read_file(retainedDirectory, "81327ADF.bin");
     check(read_quest_transition(third, 15286, third, 15424, valueMap, objectives, output)
@@ -460,6 +503,7 @@ void verify_retained(const char* retainedDirectory) {
  */
 void verify_quest_transition_reader(const char* retainedDirectory) {
     verify_generated();
+    verify_binding();
     if (retainedDirectory != nullptr) {
         verify_retained(retainedDirectory);
         std::puts("PASS: retained stage metadata and unchanged first-acquisition contract");
