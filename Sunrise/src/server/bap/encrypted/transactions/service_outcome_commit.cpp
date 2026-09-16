@@ -325,6 +325,11 @@ bool commit(ServiceOutcome& outcome, Publication& publication, const char*& reas
         reason = "current_activity";
         return committed;
     }
+    if (auto* reputation = transaction_if<state::PendingVendorReputation>(outcome)) {
+        reason = "vendor_reputation";
+        return report_commit(state::commit_vendor_reputation(*reputation),
+                             "ev=vendor_reputation stage=transaction_commit result=fail");
+    }
     if (auto* transaction = transaction_if<ProfileItemAcquisitionTransaction>(outcome)) {
         const bool committed = transaction->pending != nullptr
                                && state::commit_profile_item_acquisition(*transaction->pending);

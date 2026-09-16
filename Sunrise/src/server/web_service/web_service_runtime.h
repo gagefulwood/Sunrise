@@ -13,6 +13,7 @@
 #include "../../state/account/inventory/seen_state.h"
 #include "../../state/runtime/runtime.h"
 #include "../../state/runtime/state_quest_transition_runtime.h"
+#include "../../state/runtime/state_vendor_reputation_runtime.h"
 
 namespace sunrise::server::web_service {
 
@@ -46,7 +47,8 @@ struct Outcome {
                                   std::unique_ptr<state::PendingRecordRewardGrant>,
                                   std::unique_ptr<state::PendingSeasonPassReward>,
                                   std::unique_ptr<state::PendingSettingsUpdate>,
-                                  std::unique_ptr<state::PendingVendorVisit>>;
+                                  std::unique_ptr<state::PendingVendorVisit>,
+                                  std::unique_ptr<state::PendingVendorReputation>>;
     Mutation mutation{};
 };
 

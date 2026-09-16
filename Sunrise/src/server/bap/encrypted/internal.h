@@ -227,8 +227,8 @@ struct ServiceOutcome {
                                      std::unique_ptr<SeasonPassRewardTransaction>,
 
                                      std::unique_ptr<state::PendingSettingsUpdate>,
-
-                                     std::unique_ptr<state::PendingVendorVisit>>;
+                                     std::unique_ptr<state::PendingVendorVisit>,
+                                     std::unique_ptr<state::PendingVendorReputation>>;
 
     Transaction transaction{};
 };

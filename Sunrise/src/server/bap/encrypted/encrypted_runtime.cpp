@@ -383,6 +383,8 @@ bool consume(Session& session,
     }
     const bool artifactPurchase = transaction_if<ArtifactPurchaseTransaction>(outcome) != nullptr;
     const bool vendorVisit = transaction_if<state::PendingVendorVisit>(outcome) != nullptr;
+    const bool vendorReputation =
+        transaction_if<state::PendingVendorReputation>(outcome) != nullptr;
     const bool mutatesAccount =
         outcome.hasSelectCharacter || outcome.hasRecordClaim || outcome.hasArtifactReset
         || transaction_if<EquipmentSwapTransaction>(outcome) != nullptr
@@ -395,7 +397,8 @@ bool consume(Session& session,
         || transaction_if<ItemDismantleTransaction>(outcome) != nullptr
         || transaction_if<RecordRewardGrantTransaction>(outcome) != nullptr
         || transaction_if<SeasonPassRewardTransaction>(outcome) != nullptr
-        || transaction_if<state::PendingSettingsUpdate>(outcome) != nullptr || vendorVisit;
+        || transaction_if<state::PendingSettingsUpdate>(outcome) != nullptr || vendorVisit
+        || vendorReputation;
     const bool presentsAcquisition =
         transaction_if<ItemAcquisitionTransaction>(outcome) != nullptr
         || transaction_if<ProfileItemAcquisitionTransaction>(outcome) != nullptr
@@ -521,7 +524,8 @@ bool consume(Session& session,
                 session.activityKeepaliveDueTick = GetTickCount64() + kActivityKeepaliveIntervalMs;
             }
             const bool resyncsCommittedAccount =
-                vendorVisit || (hasPrecommittedAccountAction && !queuezPublication.hasState);
+                vendorVisit || vendorReputation
+                || (hasPrecommittedAccountAction && !queuezPublication.hasState);
             if (resyncsCommittedAccount) {
                 bap::arm_account_resync_everywhere();
             }
