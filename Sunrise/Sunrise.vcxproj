@@ -1278,6 +1278,7 @@
     <ClInclude Include="src\middleware\web_service\messages\biased_field.h" />
     <ClInclude Include="src\middleware\web_service\messages\opcode903.h" />
     <ClInclude Include="src\middleware\web_service\messages\opcode1901.h" />
+    <ClInclude Include="src\middleware\web_service\messages\opcode2002.h" />
     <ClInclude Include="src\core\ui\busy\busy.h" />
     <ClInclude Include="src\core\ui\busy\ui_busy_state.h" />
     <ClInclude Include="src\core\ui\notice\ui_notice_overlay.h" />

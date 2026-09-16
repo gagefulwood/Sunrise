@@ -455,7 +455,8 @@ bool process(const ServiceRoute& route,
                                                    itemAcquisition->characterSoid,
                                                    itemAcquisition->acquiredInstanceSoid,
                                                    itemAcquisition->updates_account(),
-                                                   transaction->update)) {
+                                                   transaction->update,
+                                                   itemAcquisition->consumedInstanceSoid)) {
                 core::log::write(core::log::Channel::server,
                                  core::log::Level::warn,
                                  "ev=acquire stage=queuez_preflight result=fail");

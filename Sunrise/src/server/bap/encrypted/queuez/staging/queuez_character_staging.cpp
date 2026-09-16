@@ -399,13 +399,24 @@ bool stage_subclass_selection(const SessionState& before,
     return staged;
 }
 
-/** Stages the character upsert and appended resident required by one new item instance. */
+/**
+ * Publishes one new item and optionally releases its consumed source in the same revision.
+ * @param before Current peer manifest.
+ * @param accountSoid Resident account root.
+ * @param characterSoid Resident character receiving the item.
+ * @param acquiredInstanceSoid Fresh identity absent from the current manifest.
+ * @param updatesAccount Whether the same revision includes the account object.
+ * @param acquisition Receives the staged manifest; use only on success.
+ * @param consumedInstanceSoid Optional resident source item to release.
+ * @return False for missing identities, exhausted revision space or insufficient capacity.
+ */
 bool stage_item_acquisition(const SessionState& before,
                             std::uint64_t accountSoid,
                             std::uint64_t characterSoid,
                             std::uint64_t acquiredInstanceSoid,
                             bool updatesAccount,
-                            ItemAcquisition& acquisition) noexcept {
+                            ItemAcquisition& acquisition,
+                            std::uint64_t consumedInstanceSoid) noexcept {
     acquisition = {};
     std::uint32_t accountDefinitionId = 0;
     std::uint32_t characterDefinitionId = 0;
@@ -413,7 +424,8 @@ bool stage_item_acquisition(const SessionState& before,
     if (!valid(before) || !before.family4Active || before.family4RootSoid == 0 || accountSoid == 0
         || accountSoid != before.family4RootSoid || characterSoid == 0 || acquiredInstanceSoid == 0
         || before.family4ResidentCount == 0
-        || before.family4ResidentCount >= before.family4Residents.size()
+        || (consumedInstanceSoid == 0
+            && before.family4ResidentCount >= before.family4Residents.size())
         || before.family4Version == (std::numeric_limits<std::int32_t>::max)()
         || !middleware::datagen::object_id(
             kAccountFamilyType, middleware::datagen::kAccountSlot, accountDefinitionId)
@@ -426,10 +438,15 @@ bool stage_item_acquisition(const SessionState& before,
 
     bool accountResident = false;
     bool characterResident = false;
+    std::size_t consumedIndex = before.family4ResidentCount;
     for (std::size_t index = 0; index < before.family4ResidentCount; ++index) {
         const ResidentObject& object = before.family4Residents[index];
         if (object.objectSoid == acquiredInstanceSoid) {
             return false;
+        }
+        if (object.objectSoid == consumedInstanceSoid
+            && object.definitionId == itemInstanceDefinitionId) {
+            consumedIndex = index;
         }
         accountResident =
             accountResident
@@ -438,13 +455,20 @@ bool stage_item_acquisition(const SessionState& before,
             characterResident
             || (object.definitionId == characterDefinitionId && object.objectSoid == characterSoid);
     }
-    if (!accountResident || !characterResident) {
+    if (!accountResident || !characterResident
+        || (consumedInstanceSoid != 0 && consumedIndex == before.family4ResidentCount)) {
         return false;
     }
 
     acquisition.after = before;
     ++acquisition.after.family4Version;
-    acquisition.after.family4Residents[before.family4ResidentCount] =
+    if (consumedInstanceSoid != 0) {
+        for (std::size_t index = consumedIndex + 1; index < before.family4ResidentCount; ++index) {
+            acquisition.after.family4Residents[index - 1] = before.family4Residents[index];
+        }
+        --acquisition.after.family4ResidentCount;
+    }
+    acquisition.after.family4Residents[acquisition.after.family4ResidentCount] =
         ResidentObject{acquiredInstanceSoid, itemInstanceDefinitionId};
     ++acquisition.after.family4ResidentCount;
     acquisition.accountDefinitionId = accountDefinitionId;
@@ -453,6 +477,7 @@ bool stage_item_acquisition(const SessionState& before,
     acquisition.accountSoid = accountSoid;
     acquisition.characterSoid = characterSoid;
     acquisition.acquiredInstanceSoid = acquiredInstanceSoid;
+    acquisition.consumedInstanceSoid = consumedInstanceSoid;
     acquisition.updatesAccount = updatesAccount;
     const bool staged = valid(acquisition.after);
     if (!staged) {

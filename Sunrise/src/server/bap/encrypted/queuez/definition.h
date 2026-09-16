@@ -138,6 +138,8 @@ struct ItemAcquisition {
     std::uint64_t accountSoid{};
     std::uint64_t characterSoid{};
     std::uint64_t acquiredInstanceSoid{};
+    /** Optional owned source released after the character stops referencing it. */
+    std::uint64_t consumedInstanceSoid{};
     /** True when the same revision also publishes the charged profile-material balances. */
     bool updatesAccount{};
 };

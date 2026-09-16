@@ -110,7 +110,7 @@ struct PendingEquipmentSwap {
     bool prepared{};
 };
 
-/** Prepared selected-character inventory insertion kept private until its reply and push fit. */
+/** Prepared selected-character grant or exchange kept private until its reply and push fit. */
 struct PendingItemAcquisition {
     CharacterState beforeCharacter{};
     CharacterState afterCharacter{};
@@ -122,6 +122,8 @@ struct PendingItemAcquisition {
     std::uint64_t accountSoid{};
     std::uint64_t characterSoid{};
     std::uint64_t acquiredInstanceSoid{};
+    /** Nonzero only when this grant replaces an owned engram in the same transaction. */
+    std::uint64_t consumedInstanceSoid{};
     std::uint32_t acquiredDefinitionHash{};
     std::uint32_t materialRequirementSetHash{};
     std::size_t characterIndex{};
@@ -543,6 +545,11 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
 /** Prepares a direct character-item grant without a Collections charge. */
 [[nodiscard]] bool prepare_item_acquisition_for_item(std::uint16_t itemDefinitionIndex,
                                                      PendingItemAcquisition& mutation) noexcept;
+
+/** Prepares one supported owned engram replacement without changing saved inventory. */
+[[nodiscard]] bool prepare_engram_decryption(std::uint64_t instanceSoid,
+                                             std::uint16_t rewardItemIndex,
+                                             PendingItemAcquisition& mutation) noexcept;
 
 /** Prepares one fixed wrapper expansion without changing account State. */
 [[nodiscard]] bool prepare_direct_item_bundle(std::uint32_t sourceDefinitionHash,

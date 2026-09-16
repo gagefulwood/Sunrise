@@ -11,6 +11,7 @@
 #include "../../middleware/encoding/byte_order.h"
 #include "../../middleware/web_service/messages/opcode1801.h"
 #include "../../middleware/web_service/messages/opcode1821.h"
+#include "../../middleware/web_service/messages/opcode2002.h"
 #include "../../middleware/web_service/messages/opcode2400.h"
 #include "../../state/account/account_state.h"
 #include "../../state/build_data/items/item_catalog.h"
@@ -471,6 +472,26 @@ void claim_season_pass_reward(const middleware::web_service::Message& message,
     grant->sourceDefinitionHash = reward.itemHash;
     grant->rewardIndex = request.rewardIndex;
     grant->prepared = true;
+}
+
+/**
+ * Prepares the supported owned Legendary Engram action; other item actions remain refused.
+ * @param message Native item-action request naming its source instance.
+ * @param outcome Receives a pending atomic consume-and-grant, never a saved mutation.
+ */
+void decrypt_engram(const middleware::web_service::Message& message, Outcome& outcome) noexcept {
+    std::uint64_t instanceSoid = 0;
+    std::uint16_t rewardItemIndex = 0;
+    if (!middleware::web_service::messages::opcode2002::parse_request(message, instanceSoid)
+        || !choose_engram_reward(state::progression::season_pass::kLegendaryEngramHash,
+                                 rewardItemIndex)) {
+        return;
+    }
+    auto* grant = emplace_mutation<state::PendingItemAcquisition>(outcome);
+    if (grant != nullptr
+        && !state::prepare_engram_decryption(instanceSoid, rewardItemIndex, *grant)) {
+        clear_mutation(outcome);
+    }
 }
 
 /** Decodes one opcode-1801 Triumphs claim and reports the record it names. */

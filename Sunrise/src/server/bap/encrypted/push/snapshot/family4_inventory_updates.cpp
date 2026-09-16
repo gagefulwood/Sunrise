@@ -395,6 +395,7 @@ bool prepare_item_acquisition(
         || mutation.accountSoid == 0 || mutation.accountSoid != acquisition.accountSoid
         || mutation.characterSoid != acquisition.characterSoid
         || mutation.acquiredInstanceSoid != acquisition.acquiredInstanceSoid
+        || mutation.consumedInstanceSoid != acquisition.consumedInstanceSoid
         // Profile inventory and account-scoped quest values both require the account object.
         || (mutation.updates_account() && !acquisition.updatesAccount)
         || acquisition.accountSoid != acquisition.after.family4RootSoid
@@ -573,6 +574,16 @@ bool prepare_item_acquisition(
     // Publish the new item before the character that references it. Dismantle uses the inverse
     // order, dropping the character reference before releasing the item.
     std::swap(staged.objects[0], staged.objects[1]);
+
+    if (mutation.consumedInstanceSoid != 0) {
+        // Release the source only after the character references the new item.
+        staged.objects[objectCount++] = middleware::queuez::Object{
+            acquisition.itemInstanceDefinitionId,
+            mutation.consumedInstanceSoid,
+            middleware::queuez::Encoding::oodle,
+            {},
+        };
+    }
 
     staged.compressedClearSize = (std::max)(reservation.compressedClearSize, compressedExtent);
     staged.family = middleware::queuez::Family{

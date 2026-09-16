@@ -9,6 +9,7 @@
 #include "../../middleware/datagen/family4/loadout/loadout_resolver.h"
 #include "../build_data/runtime.h"
 #include "../investment/store_internal.h"
+#include "../progression/season_pass_reward_catalog.h"
 #include "runtime.h"
 #include "state_account_transaction_helpers.h"
 #include "storage/internal.h"
@@ -89,7 +90,36 @@ using Quest = build_data::items::QuestInitialization;
     }
 
     const CharacterState& before = account.characters[characterIndex];
-    if (before.inventory.count >= before.inventory.values.size()
+    std::size_t inventoryIndex = before.inventory.count;
+    if (source.consumedInstanceSoid != 0) {
+        namespace pass = progression::season_pass;
+        for (std::size_t index = 0; index < before.inventory.count; ++index) {
+            if (before.inventory.values[index].instanceSoid == source.consumedInstanceSoid) {
+                inventoryIndex = index;
+                break;
+            }
+        }
+        build_data::items::Definition reward{};
+        item_details::Definition rewardDetail{};
+        if (!source.direct || profileChanged || inventoryIndex == before.inventory.count
+            || before.inventory.values[inventoryIndex].definitionHash
+                   != pass::kOwnedLegendaryEngramHash
+            || before.inventory.values[inventoryIndex].quantity != 1
+            || !pass::contains_engram_reward(pass::kLegendaryEngramHash,
+                                             definitionHash,
+                                             static_cast<std::uint8_t>(before.characterClass))
+            || !build_data::find_item_definition_hash(definitionHash, reward)
+            || reward.questInitialization.scope != Quest::Scope::none
+            || !build_data::find_configured_item_detail(reward.definitionIndex, rewardDetail)
+            || rewardDetail.definitionHash != definitionHash
+            || rewardDetail.definitionIndex != reward.definitionIndex
+            || rewardDetail.bucketId != reward.bucketId || !rewardDetail.equipmentSlot.has_value()
+            || rewardDetail.instancedDefinitionState
+                   != item_details::InstancedDefinitionState::instanced) {
+            return false;
+        }
+    }
+    if (inventoryIndex >= before.inventory.values.size()
         || before.nextInventorySerial
                >= static_cast<std::uint32_t>((std::numeric_limits<std::int32_t>::max)())) {
         return false;
@@ -101,16 +131,20 @@ using Quest = build_data::items::QuestInitialization;
     }
 
     CharacterState after = before;
-    const std::size_t inventoryIndex = after.inventory.count;
     authored_inventory::Item acquired{};
     acquired.instanceSoid = instanceSoid;
     acquired.definitionHash = definitionHash;
-    acquired.level = acquisition_level(before);
+    // Decryption preserves the source level; it does not apply Collections' strongest-item policy.
+    acquired.level = source.consumedInstanceSoid == 0
+                         ? acquisition_level(before)
+                         : before.inventory.values[inventoryIndex].level;
     acquired.quantity = 1;
     acquired.mutationSerial = static_cast<std::int32_t>(after.nextInventorySerial++);
     acquired.sockets.policy = authored_inventory::SocketPolicy::nativeDefaults;
     after.inventory.values[inventoryIndex] = acquired;
-    ++after.inventory.count;
+    if (source.consumedInstanceSoid == 0) {
+        ++after.inventory.count;
+    }
 
     AccountState candidate = chargedAccount;
     candidate.characters[characterIndex] = after;
@@ -130,6 +164,7 @@ using Quest = build_data::items::QuestInitialization;
     mutation.accountSoid = account.primarySoid;
     mutation.characterSoid = before.soid;
     mutation.acquiredInstanceSoid = instanceSoid;
+    mutation.consumedInstanceSoid = source.consumedInstanceSoid;
     mutation.acquiredDefinitionHash = definitionHash;
     mutation.materialRequirementSetHash = source.materialRequirementSetHash;
     mutation.characterIndex = characterIndex;
@@ -237,6 +272,32 @@ bool prepare_item_acquisition_for_item(std::uint16_t itemDefinitionIndex,
 
     return finalize_item_acquisition(
         account, account, grantedDefinition.definitionHash, false, {.direct = true}, mutation);
+}
+
+/**
+ * Holds the save lock while checking source ownership and the class-appropriate reward.
+ * @param instanceSoid Owned engram in the selected character's unequipped inventory.
+ * @param rewardItemIndex Installed item chosen from the supported engram pool.
+ * @param mutation Receives a pending replacement; prepared is set only on success.
+ * @return False for an unsupported source, reward, selection or full destination bucket.
+ */
+bool prepare_engram_decryption(std::uint64_t instanceSoid,
+                               std::uint16_t rewardItemIndex,
+                               PendingItemAcquisition& mutation) noexcept {
+    const std::lock_guard lock(investment::store::g_mutex);
+    mutation = {};
+    const AccountState account = account_snapshot();
+    build_data::items::Definition reward{};
+    if (instanceSoid == 0 || !account::valid(account) || !valid_profile_inventory(account)
+        || !build_data::find_item_definition_index(rewardItemIndex, reward)) {
+        return false;
+    }
+    return finalize_item_acquisition(account,
+                                     account,
+                                     reward.definitionHash,
+                                     false,
+                                     {.consumedInstanceSoid = instanceSoid, .direct = true},
+                                     mutation);
 }
 
 /** Prepares a fixed Season wrapper expansion without exposing a partial package. */
@@ -372,9 +433,15 @@ valid_item_acquisition_source(const PendingItemAcquisition& mutation) noexcept {
         || mutation.accountSoid == 0
         || mutation.acquiredDefinitionHash == authored_inventory::kNoDefinitionHash
         || mutation.characterIndex >= kCharacterCapacity
-        || mutation.expectedInventoryCount >= authored_inventory::kCharacterItemCapacity
-        || mutation.inventoryIndex != mutation.expectedInventoryCount
-        || mutation.afterCharacter.inventory.count != mutation.expectedInventoryCount + 1U
+        || mutation.expectedInventoryCount > authored_inventory::kCharacterItemCapacity
+        || (mutation.consumedInstanceSoid == 0
+                ? mutation.inventoryIndex != mutation.expectedInventoryCount
+                      || mutation.afterCharacter.inventory.count
+                             != mutation.expectedInventoryCount + 1U
+                : !mutation.directGrant
+                      || mutation.inventoryIndex >= mutation.expectedInventoryCount
+                      || mutation.afterCharacter.inventory.count != mutation.expectedInventoryCount)
+        || mutation.afterCharacter.inventory.count > mutation.afterCharacter.inventory.values.size()
         || mutation.inventoryIndex >= mutation.afterCharacter.inventory.count
         || mutation.afterCharacter.inventory.values[mutation.inventoryIndex].instanceSoid
                != mutation.acquiredInstanceSoid
@@ -440,6 +507,20 @@ valid_item_acquisition_source(const PendingItemAcquisition& mutation) noexcept {
         return false;
     }
 
+    if (mutation.consumedInstanceSoid != 0) {
+        PendingItemAcquisition canonical{};
+        if (!finalize_item_acquisition(
+                current,
+                current,
+                mutation.acquiredDefinitionHash,
+                false,
+                {.consumedInstanceSoid = mutation.consumedInstanceSoid, .direct = true},
+                canonical)
+            || mutation.profileChanged || mutation.inventoryIndex != canonical.inventoryIndex
+            || !same_character(mutation.afterCharacter, canonical.afterCharacter)) {
+            return false;
+        }
+    }
     after = current;
     after.profileItems = mutation.afterProfileItems;
     after.profileItemCount = mutation.afterProfileItemCount;

@@ -105,8 +105,10 @@ valid_profile_mutation_shape(const PendingProfileItemAcquisition& mutation) noex
                                                    const PendingProfileItemAcquisition& mutation,
                                                    AccountState& after) noexcept;
 
-/** What paid for one grant: a Collections row with its material cost, or nothing. */
+/** A grant may charge Collections materials, consume an owned engram, or cost nothing. */
 struct GrantSource {
+    /** Nonzero only for an owned engram exchanged for its decoded reward. */
+    std::uint64_t consumedInstanceSoid{};
     std::uint32_t materialRequirementSetHash{};
     std::uint16_t collectibleIndex{};
     std::uint8_t materialRequirementCount{};

@@ -161,14 +161,16 @@ namespace sunrise::server::bap::encrypted::queuez {
  * @param acquiredInstanceSoid Fresh item-instance SOID absent from the resident manifest.
  * @param updatesAccount True when the account object rides the same increment.
  * @param acquisition Gets the exact +1 version and appended resident after-image.
- * @return True when both schemas resolve and the manifest has one free resident slot.
+ * @param consumedInstanceSoid Optional resident item replaced in the same revision.
+ * @return True when schemas resolve and the resulting manifest fits.
  */
 [[nodiscard]] bool stage_item_acquisition(const SessionState& before,
                                           std::uint64_t accountSoid,
                                           std::uint64_t characterSoid,
                                           std::uint64_t acquiredInstanceSoid,
                                           bool updatesAccount,
-                                          ItemAcquisition& acquisition) noexcept;
+                                          ItemAcquisition& acquisition,
+                                          std::uint64_t consumedInstanceSoid = 0) noexcept;
 
 /** Validates one same-version bundle append and returns the revision its response may promise. */
 [[nodiscard]] bool stage_direct_item_bundle(const SessionState& before,

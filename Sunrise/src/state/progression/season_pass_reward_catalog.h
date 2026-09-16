@@ -34,6 +34,9 @@ inline constexpr std::array<std::uint32_t, 9> kDestinationResourceHashes{
 inline constexpr std::uint32_t kLegendaryEngramHash = 2223145359U;
 inline constexpr std::uint32_t kExoticEngramHash = 3875551374U;
 
+/** Owned Legendary Engrams advertise the same weapon and class-armour pools as the pass. */
+inline constexpr std::uint32_t kOwnedLegendaryEngramHash = 66825403U;
+
 /**
  * Exact non-class rewards advertised by the two auto-decrypting engram definitions.
  * TODO: extract; an engram names a sack reward set rather than items, and no reader resolves
