@@ -636,9 +636,7 @@ constexpr std::uint32_t kAbsentNameHash = 0x811C9DC5U;
 }
 
 /**
- * Settles one resolved vendor row, in the order a row's behaviours are tried.
- * A row is a bounty roll, an exchange or a grant. The row does not say which, so each is tried in
- * turn and the first that claims the row owns it. Both vendor opcodes end here.
+ * The first matching behavior owns the sale, including a refused placeholder action.
  * @param message Request being answered.
  * @param opcode Opcode to report under.
  * @param vendorIndex Vendor the request names.
@@ -670,6 +668,29 @@ void settle_vendor_row(const middleware::web_service::Message& message,
         return;
     }
     const std::span<const vendor_domain::SaleCost> price = vendor_domain::cost_entries(row);
+    if (vendorIndex >= 0 && rowIndex >= 0
+        && vendorIndex <= (std::numeric_limits<std::uint16_t>::max)()
+        && rowIndex <= (std::numeric_limits<std::uint16_t>::max)()) {
+        auto* reputation = emplace_mutation<state::PendingVendorReputation>(outcome);
+        if (reputation == nullptr) {
+            report_purchase(opcode, "fail", "storage", vendorIndex, rowIndex, itemDefinitionIndex);
+            return;
+        }
+        const auto disposition =
+            state::prepare_vendor_reputation(static_cast<std::uint16_t>(vendorIndex),
+                                             static_cast<std::uint16_t>(rowIndex),
+                                             *reputation);
+        if (disposition == state::VendorReputationDisposition::prepared) {
+            report_purchase(opcode, "ok", "reputation", vendorIndex, rowIndex, itemDefinitionIndex);
+            return;
+        }
+        clear_mutation(outcome);
+        if (disposition == state::VendorReputationDisposition::refused) {
+            report_purchase(
+                opcode, "fail", "reputation", vendorIndex, rowIndex, itemDefinitionIndex);
+            return;
+        }
+    }
     std::uint16_t rolledBounty = kUnavailableDefinitionIndex;
     if (roll_vendor_bounty(vendorIndex, categoryIndex, rolledBounty)) {
         report_purchase(opcode,
