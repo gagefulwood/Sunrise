@@ -6,16 +6,16 @@
 
 namespace sunrise::middleware::web_service::messages::opcode904 {
 
-/** Web Service opcode for acquiring a quest or other pursuit from a vendor. */
+/** Web Service opcode for vendor pursuit acquisition and interaction replies. */
 inline constexpr std::uint16_t kOpcode = 904;
 
-/** One decoded quest-acquire request: three biased 16-bit fields then one biased 32-bit row. */
+/** One vendor request: three biased 16-bit fields then one biased 32-bit sale row. */
 struct Request {
     /** Index into the vendor table, the same table 901 indexes. */
     std::int16_t vendorIndex{};
-    /** UI slot the click landed on. Not a sale row. */
+    /** Interaction ordinal for rowless replies; not a sale-row index. */
     std::int16_t slotIndex{};
-    /** Always zero on the wire; meaning unknown. */
+    /** Reply ordinal for rowless interactions; sale-backed selector meaning remains unresolved. */
     std::int16_t third{};
     /**
      * Sale row of the vendor definition, 32-bit biased by 0x80000000.
