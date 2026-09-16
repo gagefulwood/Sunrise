@@ -6,6 +6,7 @@
 
 #include "quest_counter_binding.h"
 #include "quest_initialization.h"
+#include "quest_transition.h"
 
 namespace sunrise::state::build_data::items {
 
@@ -42,6 +43,8 @@ struct Definition {
     QuestInitialization questInitialization{};
     /** Empty unless the active member counts manual Prime Engram decryptions. */
     QuestCounterBinding primeDecryption{};
+    /** Empty unless this first quest member has one supported automatic Power objective. */
+    QuestPowerGate powerGate{};
 };
 
 /** Roll-set ordinals outside the rolled ladder. */

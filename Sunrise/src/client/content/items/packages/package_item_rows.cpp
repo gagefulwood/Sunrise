@@ -128,6 +128,7 @@ bool build_item_rows(const reader::Source& source,
             corrected_plug_category(item.definitionHash, item.plugCategoryHash);
         build_items::QuestInitialization quest{};
         build_items::QuestCounterBinding primeDecryption{};
+        build_items::QuestPowerGate powerGate{};
         const auto parentIndex = tables::items::quest_parent(storage.definition);
         if (needDefinitions && itemClass == tables::kItemDefinitionClass
             && parentIndex < table.count) {
@@ -158,6 +159,13 @@ bool build_item_rows(const reader::Source& source,
                     static_cast<std::size_t>(table.count),
                     storage.questValueMap,
                     storage.objectiveTable);
+                powerGate =
+                    tables::items::read_power_quest_gate(storage.definition,
+                                                         item.definitionIndex,
+                                                         parent,
+                                                         static_cast<std::size_t>(table.count),
+                                                         storage.questValueMap,
+                                                         storage.objectiveTable);
             }
         }
         storage.rows[rowCount++] =
@@ -171,7 +179,8 @@ bool build_item_rows(const reader::Source& source,
                                                  item.rollSetIndex,
                                                  item.linkedPlugIndex,
                                                  quest,
-                                                 primeDecryption};
+                                                 primeDecryption,
+                                                 powerGate};
         if (needSocketRows) {
             storage.specialPlugCategories[item.definitionIndex] =
                 special_plug_category(plugCategoryHash);

@@ -20,11 +20,13 @@ inline constexpr std::size_t kQuestItemIndexCapacity = kUnavailableQuestItemInde
 inline constexpr std::uint16_t kQuestValueSlotLimit = kUnlockValueSlotLimit;
 /** Transition evaluation accepts at most sixteen objective references. */
 inline constexpr std::size_t kQuestObjectiveCapacity = 16;
+/** Installed Power objectives read slot 462; live reconstruction uses selected-character Power. */
+inline constexpr std::uint16_t kQuestCharacterPowerSlot = 462;
 
 /** One supported objective requires an explicit value slot to reach a signed minimum. */
 struct QuestPredicate {
-    /** Reconstructed character quests own their counted progress; comparisons use global inputs. */
-    enum class Input : std::uint8_t { family5, characterCounter };
+    /** Earned counters and derived Power belong to the selected character, not global overrides. */
+    enum class Input : std::uint8_t { family5, characterCounter, characterPower };
     std::uint16_t valueSlot{};
     std::int32_t minimumValue{};
     Input input{Input::family5};
@@ -67,12 +69,70 @@ struct QuestTransition {
         if ((index < quest.objectiveCount
              && (predicate.valueSlot >= kQuestValueSlotLimit
                  || (predicate.input != QuestPredicate::Input::family5
-                     && predicate.input != QuestPredicate::Input::characterCounter)))
+                     && predicate.input != QuestPredicate::Input::characterCounter
+                     && predicate.input != QuestPredicate::Input::characterPower)
+                 || (predicate.input == QuestPredicate::Input::characterPower
+                     && predicate.valueSlot != kQuestCharacterPowerSlot)))
             || (index >= quest.objectiveCount && predicate != QuestPredicate{})) {
             return false;
         }
     }
     return true;
+}
+
+/** A first-stage Power gate shares its source value and bank row with quest initialization. */
+struct QuestPowerGate {
+    std::int32_t minimumPower{};
+    std::int32_t successorValue{};
+    std::uint16_t successorItemIndex{};
+    std::uint16_t completionEffect{kUnavailableQuestCompletionEffect};
+
+    bool operator==(const QuestPowerGate&) const = default;
+};
+
+/**
+ * Empty gates are valid; live gates must start a character-owned quest with a distinct successor.
+ * @param gate Installed single-Power gate, or empty.
+ * @param initial First-stage value and character bank row.
+ * @param sourceIndex Owning item-table index.
+ * @return False for unsupported values, scope or item references.
+ */
+[[nodiscard]] constexpr bool valid(const QuestPowerGate& gate,
+                                   const QuestInitialization& initial,
+                                   std::uint16_t sourceIndex) noexcept {
+    return gate == QuestPowerGate{}
+           || (valid(initial) && initial.scope == QuestInitialization::Scope::character
+               && gate.minimumPower > 0 && gate.successorValue != kUnsetQuestValue
+               && gate.successorValue != kInvalidQuestInitialValue
+               && gate.successorValue != initial.value && sourceIndex != kUnavailableQuestItemIndex
+               && gate.successorItemIndex != kUnavailableQuestItemIndex
+               && gate.successorItemIndex != sourceIndex);
+}
+
+/**
+ * Expands a first-stage gate without trusting the seeded global Power override.
+ * @param gate Nonempty installed Power gate.
+ * @param initial First-stage saved value and row.
+ * @param sourceIndex Owning item-table index.
+ * @return Empty for an invalid gate, otherwise one character-Power predicate.
+ */
+[[nodiscard]] constexpr QuestTransition power_transition(const QuestPowerGate& gate,
+                                                         const QuestInitialization& initial,
+                                                         std::uint16_t sourceIndex) noexcept {
+    if (gate == QuestPowerGate{} || !valid(gate, initial, sourceIndex)) {
+        return {};
+    }
+    QuestTransition result{};
+    result.sourceItemIndex = sourceIndex;
+    result.successorItemIndex = gate.successorItemIndex;
+    result.currentValue = initial.value;
+    result.nextValue = gate.successorValue;
+    result.valueRow = initial.row;
+    result.objectives[0] = {
+        kQuestCharacterPowerSlot, gate.minimumPower, QuestPredicate::Input::characterPower};
+    result.objectiveCount = 1;
+    result.completionEffect = gate.completionEffect;
+    return result;
 }
 
 /**

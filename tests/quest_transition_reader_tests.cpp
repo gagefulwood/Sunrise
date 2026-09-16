@@ -146,6 +146,10 @@ Fixture fixture() {
     put(result.objectiveTable, kExpressionRows + 12, kObjectiveMinimum);
     put(result.objectiveTable, kExpressionRows + 16, std::uint32_t{14});
     put(result.objectiveTable, kExpressionRows + 20, std::uint32_t{0xFFFFFFFFU});
+    // First-acquisition metadata requires the item's authored presence-flag array.
+    put_block(result.definition, 0x90, 0x250, 0x808077ABU);
+    put_array(result.definition, 0x250, 0x280, 1, 0x80807D4BU);
+    put(result.definition, 0x290, kSetValueSlot);
     return result;
 }
 
@@ -405,6 +409,45 @@ void verify_generated() {
     rejected(value, "counter with extra instruction accepted");
 }
 
+/** Checks first-stage Power gates without broadening later-stage or effect handling. */
+void verify_power_gate() {
+    namespace items = sunrise::state::build_data::items;
+    namespace cache = sunrise::state::build_data::cache::records;
+    using sunrise::middleware::content::packages::tables::items::read_power_quest_gate;
+    Fixture value = fixture();
+    const auto readGate = [&](std::uint16_t index = kSourceItem) {
+        return read_power_quest_gate(value.definition,
+                                     index,
+                                     value.definition,
+                                     kItemCount,
+                                     value.valueMap,
+                                     value.objectiveTable);
+    };
+    const items::QuestPowerGate expected{kObjectiveMinimum, 200, kSuccessorItem, kCompletionEffect};
+    check(readGate() == expected, "first Power gate metadata differs");
+    check(readGate(kSuccessorItem) == items::QuestPowerGate{}, "later stage auto-bound");
+    items::Definition item{}, decoded{};
+    item.definitionIndex = kSourceItem;
+    item.questInitialization = {100, 0, items::QuestInitialization::Scope::character};
+    item.powerGate = expected;
+    cache::ItemRecord record{};
+    check(cache::encode(item, record) && cache::decode(record, decoded)
+              && decoded.powerGate == expected,
+          "Power gate cache round trip");
+    auto transition = items::power_transition(expected, item.questInitialization, kSourceItem);
+    check(items::valid(transition)
+              && transition.objectives[0].input == QuestPredicate::Input::characterPower
+              && transition.completionEffect == kCompletionEffect,
+          "Power gate lost derived input or completion reference");
+    record.questSuccessorItemIndex = kSourceItem;
+    check(!cache::decode(record, decoded), "cached self-transition accepted");
+    put(value.objectiveTable, kExpressionRows + 4, std::uint32_t{kOtherObjectiveValueSlot});
+    check(readGate() == items::QuestPowerGate{}, "unrelated global input bound as Power");
+    value = fixture();
+    put_array(value.objectiveTable, kObjectiveRow + 8, 0x320, 1, 0x80807D31U);
+    check(readGate() == items::QuestPowerGate{}, "counted objective bound as Power");
+}
+
 /** Checks event identity, direct-counter requirements and cached binding validation. */
 void verify_binding() {
     Fixture value = fixture();
@@ -463,6 +506,10 @@ void verify_retained(const char* retainedDirectory) {
     expected.objectiveCount = 1;
     expected.completionEffect = 11481;
     check(output == expected, "retained first-stage transition differs");
+    using sunrise::middleware::content::packages::tables::items::read_power_quest_gate;
+    check(read_power_quest_gate(item, 15284, item, 15424, valueMap, objectives)
+              == sunrise::state::build_data::items::QuestPowerGate{899, 200, 15285, 11481},
+          "retained first-stage Power gate differs");
     // Shared-parser extraction must leave the existing first-acquisition contract unchanged.
     const auto initial =
         sunrise::middleware::content::packages::tables::items::read_quest_initialization(
@@ -503,6 +550,7 @@ void verify_retained(const char* retainedDirectory) {
  */
 void verify_quest_transition_reader(const char* retainedDirectory) {
     verify_generated();
+    verify_power_gate();
     verify_binding();
     if (retainedDirectory != nullptr) {
         verify_retained(retainedDirectory);

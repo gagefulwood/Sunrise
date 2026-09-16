@@ -72,8 +72,13 @@ bool encode(const items::Definition& value, ItemRecord& record) noexcept {
         value.primeDecryption.threshold,
         value.primeDecryption.stageRow,
         value.primeDecryption.valueSlot,
+        value.powerGate.minimumPower,
+        value.powerGate.successorValue,
+        value.powerGate.successorItemIndex,
+        value.powerGate.completionEffect,
     };
-    return items::valid(value.questInitialization) && items::valid(value.primeDecryption);
+    return items::valid(value.questInitialization) && items::valid(value.primeDecryption)
+           && items::valid(value.powerGate, value.questInitialization, value.definitionIndex);
 }
 
 /**
@@ -98,8 +103,13 @@ bool decode(const ItemRecord& record, items::Definition& value) noexcept {
              {record.primeStageValue,
               record.primeThreshold,
               record.primeStageRow,
-              record.primeValueSlot}};
-    return items::valid(value.questInitialization) && items::valid(value.primeDecryption);
+              record.primeValueSlot},
+             {record.questMinimumPower,
+              record.questSuccessorValue,
+              record.questSuccessorItemIndex,
+              record.questCompletionEffect}};
+    return items::valid(value.questInitialization) && items::valid(value.primeDecryption)
+           && items::valid(value.powerGate, value.questInitialization, value.definitionIndex);
 }
 
 /** Encodes one collectible ordinal and its optional item link. */

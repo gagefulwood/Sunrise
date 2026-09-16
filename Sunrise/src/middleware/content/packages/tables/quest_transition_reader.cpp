@@ -331,4 +331,41 @@ read_prime_decryption_binding(std::span<const std::byte> definition,
     return binding;
 }
 
+/**
+ * Reads a first-stage gate only when its sole automatic objective compares character Power.
+ * @param definition Current pursuit item definition.
+ * @param itemIndex Current item's item-table index.
+ * @param parent Quest-set owner selected by quest_parent.
+ * @param itemCount Exclusive item-table bound.
+ * @param valueMap Installed unlock value maps.
+ * @param objectiveTable Dense objective definition table.
+ * @return Empty for later stages, counted objectives or unsupported metadata.
+ */
+state::build_data::items::QuestPowerGate
+read_power_quest_gate(std::span<const std::byte> definition,
+                      std::uint16_t itemIndex,
+                      std::span<const std::byte> parent,
+                      std::size_t itemCount,
+                      std::span<const std::byte> valueMap,
+                      std::span<const std::byte> objectiveTable) noexcept {
+    namespace items = state::build_data::items;
+    const auto initial =
+        read_quest_initialization(definition, itemIndex, parent, itemCount, valueMap);
+    Transition transition{};
+    if (initial.scope != Scope::character
+        || !read_quest_transition(
+            definition, itemIndex, parent, itemCount, valueMap, objectiveTable, transition)
+        || transition.currentValue != initial.value || transition.valueRow != initial.row
+        || transition.objectiveCount != 1
+        || transition.objectives[0].input != Predicate::Input::family5
+        || transition.objectives[0].valueSlot != items::kQuestCharacterPowerSlot) {
+        return {};
+    }
+    const items::QuestPowerGate gate{transition.objectives[0].minimumValue,
+                                     transition.nextValue,
+                                     transition.successorItemIndex,
+                                     transition.completionEffect};
+    return items::valid(gate, initial, itemIndex) ? gate : items::QuestPowerGate{};
+}
+
 } // namespace sunrise::middleware::content::packages::tables::items

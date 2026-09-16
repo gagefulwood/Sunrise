@@ -105,6 +105,11 @@ bool valid(std::span<const Definition> definitions) noexcept {
     for (const Definition& definition : definitions) {
         if (definition.definitionIndex >= definitions.size() || occupied[definition.definitionIndex]
             || !valid(definition.questInitialization) || !valid(definition.primeDecryption)
+            || !valid(
+                definition.powerGate, definition.questInitialization, definition.definitionIndex)
+            || (definition.powerGate != QuestPowerGate{}
+                && (definition.bucketId != kPursuitBucketId
+                    || definition.powerGate.successorItemIndex >= definitions.size()))
             || (definition.primeDecryption != QuestCounterBinding{}
                 && definition.bucketId != kPursuitBucketId)
             || (definition.questInitialization.scope != QuestInitialization::Scope::none
