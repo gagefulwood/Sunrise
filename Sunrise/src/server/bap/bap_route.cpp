@@ -352,6 +352,7 @@ void arm_account_resync_elsewhere(Session& origin) noexcept {
     for (auto& peer : g_sessions) {
         if (&peer != &origin && peer.id != 0 && peer.authenticated && peer.queuez.family4Active) {
             peer.accountResyncArmed = true;
+            peer.reputationResyncCharacter = 0;
             peer.questAdvancementArmed = true;
         }
     }
@@ -364,6 +365,7 @@ void arm_account_resync_everywhere() noexcept {
             continue;
         }
         peer.accountResyncArmed = true;
+        peer.reputationResyncCharacter = 0;
         peer.questAdvancementArmed = true;
     }
 }

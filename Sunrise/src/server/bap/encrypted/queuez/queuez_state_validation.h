@@ -28,6 +28,12 @@ namespace sunrise::server::bap::encrypted::queuez {
                                          const middleware::queuez::Family& family,
                                          SessionState& after) noexcept;
 
+/** Narrows a full refresh to account and character only when its resident set is unchanged. */
+[[nodiscard]] bool stage_reputation_increment(const SessionState& before,
+                                              std::uint64_t characterSoid,
+                                              middleware::queuez::Family& family,
+                                              SessionState& after) noexcept;
+
 /**
  * Decides whether one family-zero subscription publishes, and as which kind of frame.
  * A repeat naming the character the pair already holds reports no publish and no version bump.

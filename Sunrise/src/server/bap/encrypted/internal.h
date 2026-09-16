@@ -459,7 +459,7 @@ void append_queuez_notification(Scratch& scratch,
 
                                 bool& armsBannerRepush) noexcept;
 
-/** Appends one next-version full Family-4 snapshot used to resynchronize another peer. */
+/** Publishes a full refresh unless an isolated reputation update can keep all residents. */
 
 [[nodiscard]] bool append_account_resync_notification(
 
@@ -477,7 +477,9 @@ void append_queuez_notification(Scratch& scratch,
 
     std::size_t& written,
 
-    queuez::SessionState& after) noexcept;
+    queuez::SessionState& after,
+
+    std::uint64_t reputationCharacter = 0) noexcept;
 
 /** Publishes one Season package as new residents plus their acquisition descriptors. */
 

@@ -451,6 +451,8 @@ struct Session {
     bool accountMutationPublished{};
     /** True while another peer's account mutation still needs a full local refresh. */
     bool accountResyncArmed{};
+    /** Nonzero only for an isolated reputation refresh on the requesting peer. */
+    std::uint64_t reputationResyncCharacter{};
     /** Check once on first subscription, then only after account mutations or character changes. */
     bool questAdvancementArmed{true};
     /**

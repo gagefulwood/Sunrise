@@ -319,7 +319,8 @@ selected_character(const state::AccountState& account) noexcept {
                                                   nextSendNonce,
                                                   scratch.framed,
                                                   framedSize,
-                                                  currentQueuez)) {
+                                                  currentQueuez,
+                                                  session.reputationResyncCharacter)) {
         core::log::write(core::log::Channel::server,
                          core::log::Level::warn,
                          "ev=queuez stage=peer_resync result=fail reason=family4");
@@ -371,6 +372,7 @@ selected_character(const state::AccountState& account) noexcept {
     session.sendNonce = nextSendNonce;
     session.queuez = currentQueuez;
     session.accountResyncArmed = false;
+    session.reputationResyncCharacter = 0;
     if (auxiliaryRefreshFailed) {
         // Family 4 already produced a complete frame. Appearance and roster are derived views,
         // so they retry in their own deferred lane rather than holding the account update.

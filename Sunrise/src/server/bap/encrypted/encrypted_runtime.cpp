@@ -385,6 +385,9 @@ bool consume(Session& session,
     const bool vendorVisit = transaction_if<state::PendingVendorVisit>(outcome) != nullptr;
     const bool vendorReputation =
         transaction_if<state::PendingVendorReputation>(outcome) != nullptr;
+    const std::uint64_t reputationCharacter =
+        vendorReputation ? transaction_if<state::PendingVendorReputation>(outcome)->characterSoid
+                         : 0;
     const bool mutatesAccount =
         outcome.hasSelectCharacter || outcome.hasRecordClaim || outcome.hasArtifactReset
         || transaction_if<EquipmentSwapTransaction>(outcome) != nullptr
@@ -527,7 +530,11 @@ bool consume(Session& session,
                 vendorVisit || vendorReputation
                 || (hasPrecommittedAccountAction && !queuezPublication.hasState);
             if (resyncsCommittedAccount) {
+                const bool isolatedReputation = vendorReputation && !session.accountResyncArmed;
                 bap::arm_account_resync_everywhere();
+                if (isolatedReputation) {
+                    session.reputationResyncCharacter = reputationCharacter;
+                }
             }
             if (outcome.selectedCharacterChanged || artifactPurchase || outcome.hasArtifactReset
                 || outcome.objectiveProgressChanged) {

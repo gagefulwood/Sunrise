@@ -64,7 +64,19 @@ namespace {
 
 } // namespace
 
-/** Appends one current full account snapshot at the peer's next Family-4 version. */
+/**
+ * Publishes committed account state at the peer's next Family-4 revision.
+ * @param scratch Lock-owned transform buffers.
+ * @param before Current peer state.
+ * @param acquisitionPresentationRows Item rows retained for active acquisition feeds.
+ * @param key Active session key.
+ * @param nonce Advanced only after a complete frame.
+ * @param response Output containing any prior frames.
+ * @param written Updated byte count on success.
+ * @param after Receives the published peer state.
+ * @param reputationCharacter Isolated reputation recipient, or zero for a full refresh.
+ * @return False when a complete refresh cannot be staged or encoded.
+ */
 bool append_account_resync_notification(
     Scratch& scratch,
     const queuez::SessionState& before,
@@ -73,7 +85,8 @@ bool append_account_resync_notification(
     std::array<std::byte, state::kBapNonceSize>& nonce,
     std::span<std::byte> response,
     std::size_t& written,
-    queuez::SessionState& after) noexcept {
+    queuez::SessionState& after,
+    std::uint64_t reputationCharacter) noexcept {
     after = before;
     ensure_account_canonical();
     if (!queuez::valid(before) || !before.family4Active || before.family4RootSoid == 0
@@ -85,13 +98,24 @@ bool append_account_resync_notification(
                                            before.family4RootSoid,
                                            before.family4Version + 1,
                                            acquisitionPresentationRows,
-                                           prepared)
-        || !queuez::stage_family4_refresh(before, prepared.family, after)) {
+                                           prepared)) {
+        return false;
+    }
+    const bool incremental =
+        reputationCharacter != 0
+        && queuez::stage_reputation_increment(before, reputationCharacter, prepared.family, after);
+    if (!incremental && !queuez::stage_family4_refresh(before, prepared.family, after)) {
         return false;
     }
     if (!queuez_frame::append_prepared_frame(scratch, prepared, key, nonce, response, written)) {
         after = before;
         return false;
+    }
+    if (reputationCharacter != 0) {
+        core::log::write(core::log::Channel::server,
+                         core::log::Level::info,
+                         incremental ? "ev=vendor_reputation stage=publication mode=increment"
+                                     : "ev=vendor_reputation stage=publication mode=full");
     }
     return true;
 }
