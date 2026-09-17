@@ -11,6 +11,7 @@
 
 #include "../../middleware/datagen/family4/loadout/loadout_resolver.h"
 #include "../build_data/runtime.h"
+#include "../build_data/vendors/vendor_catalog.h"
 #include "../investment/store_internal.h"
 #include "../progression/season_pass_reward_catalog.h"
 #include "../unlocks/unlocks_records.h"
@@ -46,6 +47,77 @@ constexpr std::array kEmoteOwnership{
     EmoteOwnership{3921851413U, 4451},
 };
 
+/** Build-86657 Zavala identity and Gratitude Package sale in Special Orders. */
+constexpr std::uint32_t kZavalaHash = 69482069U;
+constexpr std::uint16_t kGratitudeSale = 106;
+constexpr std::int32_t kSpecialOrdersCategory = 17;
+/** The source is consumed on acquisition, not retained as an empty package. */
+constexpr std::uint32_t kGratitudePackageHash = 2800872395U;
+/** FLAG[7243] uses profile row 217; NOT FLAG[7618] uses account row 4634. */
+constexpr std::uint16_t kGratitudeEligibilityRow = 217;
+constexpr std::uint16_t kGratitudeClaimRow = 4634;
+
+/** Reward identities do not define the shader or consumable payout quantities. */
+constexpr std::array kGratitudeRewardHashes{
+    1923236933U, // Veteran of the Hunt emblem.
+    801733632U,  // Coin Flip emote.
+    3921851413U, // Knife Trick emote.
+    690228054U,  // Shrouded Stripes shader.
+    1909657913U, // Fireteam Medallion.
+    2916406440U, // Boon of the Vanguard.
+    3196288028U, // Boon of the Crucible.
+    2891979647U, // Finest Matterweave.
+};
+
+/**
+ * Rechecks the installed free sale and both account-scoped purchase predicates.
+ * @param vendorIndex Installed vendor selector.
+ * @return True only while the gift is eligible and unclaimed.
+ */
+bool gratitude_eligible(std::uint16_t vendorIndex) noexcept {
+    build_data::vendors::IndexEntry entry{};
+    build_data::vendors::Definition vendor{};
+    build_data::vendors::SaleRow sale{};
+    build_data::items::Definition item{};
+    std::int32_t eligible{}, claimed{};
+    return build_data::vendors::find_index(vendorIndex, entry)
+           && entry.definitionHash == kZavalaHash && build_data::vendors::find(kZavalaHash, vendor)
+           && build_data::vendors::sale_row(vendor, kGratitudeSale, sale)
+           && sale.categoryIndex == kSpecialOrdersCategory && sale.costQuantity == 0
+           && sale.costItemIndex == build_data::vendors::kAbsentCostItem
+           && build_data::find_item_definition_index(sale.itemIndex, item)
+           && item.definitionHash == kGratitudePackageHash
+           && investment::store::read_unlock(
+               investment::store::Bank::profileFlags, kGratitudeEligibilityRow, eligible)
+           && investment::store::read_unlock(
+               investment::store::Bank::accountFlags, kGratitudeClaimRow, claimed)
+           && eligible == unlocks::kFlagSet && claimed == unlocks::kFlagClear;
+}
+
+/**
+ * A gift claim must carry each supported reward once, without an unrelated record claim.
+ * @param mutation Prepared reward batch under the investment lock.
+ * @return False for a stale claim or an incomplete, repeated or unrelated reward set.
+ */
+bool gratitude_matches(const PendingRecordRewardGrant& mutation) noexcept {
+    if (!mutation.gratitudeVendorIndex.has_value()
+        || mutation.claimedRecordIndex != kUnclaimedRecordIndex
+        || mutation.rewardCount != kGratitudeRewardHashes.size()
+        || !gratitude_eligible(*mutation.gratitudeVendorIndex)) {
+        return false;
+    }
+    for (const auto hash : kGratitudeRewardHashes) {
+        std::size_t count{};
+        for (std::size_t index = 0; index < mutation.rewardCount; ++index) {
+            count += mutation.rewards[index].definitionHash == hash;
+        }
+        if (count != 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
 /** @param hash Installed emote hash. @return Its supported ownership binding, or null. */
 const EmoteOwnership* emote_ownership(std::uint32_t hash) noexcept {
     for (const auto& binding : kEmoteOwnership) {
@@ -57,7 +129,7 @@ const EmoteOwnership* emote_ownership(std::uint32_t hash) noexcept {
 }
 
 /**
- * Writes only the ownership rows of an already validated reward batch.
+ * Writes permanent ownership and the gift claim inside the caller's transaction.
  * @param mutation Validated batch under the investment transaction lock.
  * @return False when any write fails; the caller must roll back the whole transaction.
  */
@@ -71,7 +143,9 @@ bool write_reward_unlocks(const PendingRecordRewardGrant& mutation) noexcept {
             return false;
         }
     }
-    return true;
+    return !mutation.gratitudeVendorIndex.has_value()
+           || investment::store::write_unlock(
+               investment::store::Bank::accountFlags, kGratitudeClaimRow, unlocks::kFlagSet);
 }
 
 [[nodiscard]] bool materialize_record_reward(const AccountState& current,
@@ -183,6 +257,9 @@ namespace {
             current, mutation.beforeProfileItems, mutation.beforeProfileItemCount)
         || !mutation.beforeCharacter.selected
         || mutation.beforeCharacter.soid != mutation.characterSoid) {
+        return false;
+    }
+    if (mutation.gratitudeVendorIndex.has_value() && !gratitude_matches(mutation)) {
         return false;
     }
 
@@ -459,6 +536,34 @@ bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
     return true;
 }
 
+/**
+ * Binds a complete server payout to the gift's still-unclaimed account state.
+ * @param vendorIndex Installed vendor selector.
+ * @param saleIndex Gift sale selector.
+ * @param rewards Explicit server-owned payout; stack quantities must be supplied by its policy.
+ * @param mutation Receives the atomic grant, or a cleared value on failure.
+ * @return True only when the full payout and claim can be prepared without writes.
+ */
+bool prepare_gratitude_package(std::uint16_t vendorIndex,
+                               std::uint16_t saleIndex,
+                               std::span<const DirectRecordReward> rewards,
+                               PendingRecordRewardGrant& mutation) noexcept {
+    mutation = {};
+    const std::lock_guard lock(investment::store::g_mutex);
+    if (saleIndex != kGratitudeSale || rewards.size() != kGratitudeRewardHashes.size()
+        || !gratitude_eligible(vendorIndex)
+        || !prepare_record_reward_grant(rewards, kUnclaimedRecordIndex, mutation)) {
+        mutation = {};
+        return false;
+    }
+    mutation.gratitudeVendorIndex = vendorIndex;
+    if (!gratitude_matches(mutation)) {
+        mutation = {};
+        return false;
+    }
+    return true;
+}
+
 bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
                                  AccountState& after) noexcept {
     const std::lock_guard lock(investment::store::g_mutex);
@@ -487,6 +592,9 @@ bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
         if (reward.kind == RecordRewardKind::accountUnlock) {
             afterUnlocks.accountFlags[reward.stateIndex] = unlocks::kFlagSet;
         }
+    }
+    if (mutation.gratitudeVendorIndex.has_value()) {
+        afterUnlocks.accountFlags[kGratitudeClaimRow] = unlocks::kFlagSet;
     }
     return true;
 }
