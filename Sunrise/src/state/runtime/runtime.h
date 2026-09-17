@@ -269,7 +269,7 @@ struct PreparedRecordReward {
 /** A reward grant that claims no record carries this instead of a record row. */
 inline constexpr std::uint16_t kUnclaimedRecordIndex = 0xFFFFU;
 
-/** Record claim and all of its item rows committed as one transaction. */
+/** One reward batch with an optional account-wide gift claim. */
 struct PendingRecordRewardGrant {
     CharacterState beforeCharacter{};
     CharacterState afterCharacter{};
@@ -288,6 +288,8 @@ struct PendingRecordRewardGrant {
     std::size_t beforeProfileItemCount{};
     std::size_t afterProfileItemCount{};
     std::size_t rewardCount{};
+    /** Present only for a Gratitude Package batch that must consume its account claim. */
+    std::optional<std::uint16_t> gratitudeVendorIndex;
     bool prepared{};
 };
 
@@ -587,7 +589,7 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
 /** Atomically commits one prepared reward grant and its durable Season claim. */
 [[nodiscard]] bool commit_season_pass_reward(PendingSeasonPassReward& mutation) noexcept;
 
-/** Atomically commits one prepared Triumph reward and its durable record claim. */
+/** Atomically commits prepared rewards, permanent ownership and an optional gift claim. */
 [[nodiscard]] bool commit_record_reward(PendingRecordRewardGrant& mutation) noexcept;
 
 /**
@@ -600,6 +602,19 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
 [[nodiscard]] bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
                                                std::uint16_t claimedRecordIndex,
                                                PendingRecordRewardGrant& mutation) noexcept;
+
+/**
+ * Prepares the Gratitude Package with an explicit server-owned payout, never request quantities.
+ * @param vendorIndex Installed vendor selector.
+ * @param saleIndex Gift sale selector.
+ * @param rewards Complete payout policy; this function does not supply retail stack quantities.
+ * @param mutation Receives the grant and account claim; cleared on failure.
+ * @return False when the sale, eligibility, reward set or inventory capacity is unsupported.
+ */
+[[nodiscard]] bool prepare_gratitude_package(std::uint16_t vendorIndex,
+                                             std::uint16_t saleIndex,
+                                             std::span<const DirectRecordReward> rewards,
+                                             PendingRecordRewardGrant& mutation) noexcept;
 
 /** Builds the full account after-image while a record reward remains current. */
 [[nodiscard]] bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
