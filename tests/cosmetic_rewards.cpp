@@ -466,6 +466,15 @@ bool sale_row(const Definition& definition, std::size_t row, SaleRow& output) no
 }
 } // namespace sunrise::state::build_data::vendors
 namespace sunrise::state {
+// Gift batches must not enter single-item faction or quest publication paths.
+bool vendor_reward_current(const PendingItemAcquisition&) noexcept {
+    check(false, "unexpected faction reward validation");
+    return false;
+}
+bool investment_snapshot(InvestmentState&) noexcept {
+    check(false, "unexpected quest objective publication");
+    return false;
+}
 void revoke_season_pass_reward(std::uint16_t) noexcept {
     check(false, "unexpected Season revoke");
 }

@@ -10,6 +10,7 @@ $bundleSource = Join-Path $bundleRoot 'Sunrise/src'
 $bundleSqlite = Join-Path $bundleRoot 'Sunrise/vendor/sqlite'
 $bundleSources = @(
     'tests/cosmetic_rewards.cpp',
+    'Sunrise/src/state/runtime/state_vendor_bundle_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_reward_grant_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_acquisition_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_profile_runtime.cpp',
