@@ -419,6 +419,11 @@ bool find_configured_item_detail(std::uint16_t index,
     definition.definitionIndex = index;
     definition.definitionHash = item.definitionHash;
     definition.bucketId = item.bucketId;
+    // The content loader supplies the emote bucket's slot even without an equipment block.
+    if (index < kEmotes) {
+        definition.equipmentSlot =
+            static_cast<std::int8_t>(account::inventory::EquipmentSlot::emote);
+    }
     if ((index >= kEmotes && index < kFirstStack) || g_wrongEquipment) {
         definition.equipmentSlot = 0;
     }
