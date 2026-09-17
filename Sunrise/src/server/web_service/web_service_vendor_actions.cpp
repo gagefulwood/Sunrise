@@ -643,6 +643,29 @@ void settle_vendor_row(const middleware::web_service::Message& message,
                        std::int32_t categoryIndex,
                        std::uint16_t itemDefinitionIndex,
                        Outcome& outcome) noexcept {
+    state::build_data::items::Definition offered{};
+    if (state::build_data::find_item_definition_index(itemDefinitionIndex, offered)
+        && offered.definitionHash == state::kGratitudePackageHash) {
+        auto* gift = emplace_mutation<state::PendingRecordRewardGrant>(outcome);
+        const bool prepared =
+            gift != nullptr && vendorIndex >= 0 && rowIndex >= 0
+            && static_cast<std::uint32_t>(vendorIndex) < kUnavailableDefinitionIndex
+            && static_cast<std::uint32_t>(rowIndex) < kUnavailableDefinitionIndex
+            && state::prepare_gratitude_package(static_cast<std::uint16_t>(vendorIndex),
+                                                static_cast<std::uint16_t>(rowIndex),
+                                                *gift);
+        report_purchase(opcode,
+                        prepared ? "ok" : "fail",
+                        prepared ? "gratitude_prepared" : "gratitude_refused",
+                        vendorIndex,
+                        rowIndex,
+                        itemDefinitionIndex);
+        if (!prepared) {
+            clear_mutation(outcome);
+        }
+        // A refused gift must not fall through to an empty-wrapper acquisition.
+        return;
+    }
     // A recognized reward sale owns its credit debit and must never fall through to a free grant.
     if (vendorIndex >= 0 && vendorIndex <= (std::numeric_limits<std::uint16_t>::max)()
         && state::is_vendor_reward_category(static_cast<std::uint16_t>(vendorIndex),

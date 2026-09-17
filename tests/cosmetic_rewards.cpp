@@ -36,6 +36,8 @@ constexpr std::array kHashes{
 };
 /** Fixture indices separate equipment from profile stacks and the source wrapper. */
 constexpr std::size_t kFirstStack = 4, kGiftSource = kHashes.size() - 1;
+/** Fixture positions of the shader socket-action source and the one-stack medallion. */
+constexpr std::uint16_t kShaderIndex = 4, kMedallionIndex = 5;
 /** Synthetic profile bucket and stack limit exercise capacity without a player save. */
 constexpr std::uint8_t kProfileBucket = 2;
 constexpr std::int32_t kStackLimit = 20;
@@ -52,6 +54,8 @@ constexpr std::array<std::uint16_t, kEmotes> kRows{4450, 4451};
 std::size_t g_capacity = 1;
 std::size_t g_recordRevocations{};
 bool g_missingContent{}, g_wrongEquipment{};
+/** An out-of-range selector leaves every fixture definition available. */
+std::size_t g_missingItem = kHashes.size();
 std::uint16_t g_profileCapacity = kProfileCapacity;
 state::build_data::vendors::SaleRow g_sale{};
 /** @param passed Check result. @param label Failure description. */
@@ -82,6 +86,7 @@ void reset() {
     g_capacity = 1;
     g_missingContent = false;
     g_wrongEquipment = false;
+    g_missingItem = kHashes.size();
     g_profileCapacity = kProfileCapacity;
     g_sale = {};
     g_sale.categoryIndex = kCategory;
@@ -240,6 +245,39 @@ void verify_gift() {
     check(!state::prepare_gratitude_package(kVendor, kSale, kGiftRewards, pending),
           "different character cannot reclaim account gift");
 }
+/** Verifies the provisional production payout without treating it as recovered retail data. */
+void verify_provisional_gift() {
+    eligible_gift();
+    state::PendingRecordRewardGrant pending{};
+    g_missingItem = kMedallionIndex;
+    check(!state::prepare_gratitude_package(kVendor, kSale, pending) && !pending.prepared
+              && claimed() == 0 && owned(0) == 0,
+          "missing payout definition refuses whole gift");
+    g_missingItem = kHashes.size();
+    check(state::prepare_gratitude_package(kVendor, kSale, pending)
+              && pending.rewardCount == kGiftRewards.size(),
+          "production policy resolves the complete reward set");
+    bool hasShaderResident = false;
+    for (std::size_t index = 0; index < pending.rewardCount; ++index) {
+        const auto& reward = pending.rewards[index];
+        check(reward.quantity == 1 && reward.definitionHash != state::kGratitudePackageHash,
+              "provisional policy grants one per reward, never the wrapper");
+        if (reward.definitionHash == kHashes[kShaderIndex]) {
+            hasShaderResident = reward.kind == state::RecordRewardKind::profileStack
+                                && reward.appendedProfileResident && reward.instanceSoid != 0;
+        }
+    }
+    check(hasShaderResident, "new shader has a publishable socket-action resident");
+    check(state::commit_record_reward(pending) && claimed() == state::unlocks::kFlagSet,
+          "production policy commits the account claim");
+    for (std::size_t index = 0; index < store::account().profileItemCount; ++index) {
+        check(store::account().profileItems[index].quantity == 1,
+              "provisional profile quantities are one");
+    }
+    check(!state::prepare_gratitude_package(kVendor, kSale, pending) && !pending.prepared,
+          "production policy cannot claim twice");
+}
+
 /** Checks ownership, inventory, rollback, staleness and malformed reward refusal. */
 void verify() {
     state::PendingRecordRewardGrant pending{};
@@ -352,7 +390,7 @@ bool find_season_pass_reward(std::uint16_t, season_pass::Reward&) noexcept {
 }
 bool find_item_definition_index(std::uint16_t index, items::Definition& definition) noexcept {
     definition = {};
-    if (index >= kHashes.size() || g_missingContent) {
+    if (index >= kHashes.size() || index == g_missingItem || g_missingContent) {
         return false;
     }
     definition.definitionIndex = index;
@@ -387,7 +425,7 @@ bool find_configured_item_detail(std::uint16_t index,
     definition.instancedDefinitionState = index < kFirstStack
                                               ? items::details::InstancedDefinitionState::instanced
                                               : items::details::InstancedDefinitionState::stackable;
-    definition.maxStackSize = kStackLimit;
+    definition.maxStackSize = index == kMedallionIndex ? 1 : kStackLimit;
     return true;
 }
 bool find_inventory_bucket_descriptor(std::uint8_t bucketId,
@@ -399,8 +437,8 @@ bool find_inventory_bucket_descriptor(std::uint8_t bucketId,
     descriptor.slotCount = g_profileCapacity;
     return bucketId == kGearBucket || bucketId == kEmoteBucket || bucketId == kProfileBucket;
 }
-bool is_profile_action_source(std::uint16_t, std::uint8_t) noexcept {
-    return false;
+bool is_profile_action_source(std::uint16_t index, std::uint8_t) noexcept {
+    return index == kShaderIndex;
 }
 bool find_season_pass_package(std::uint32_t, season_pass::Package&) noexcept {
     return false;
@@ -477,6 +515,7 @@ int main(int argc, char** argv) {
           "open disposable database");
     verify();
     verify_gift();
+    verify_provisional_gift();
     eligible_gift();
     state::PendingRecordRewardGrant pending{};
     prepare_gift(pending);
