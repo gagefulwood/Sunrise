@@ -321,6 +321,15 @@ bool find_collectible_definition(std::uint16_t, collectibles::Definition&) noexc
 }
 } // namespace sunrise::state::build_data
 namespace sunrise::state {
+// Bundle grants must not enter the combined branch's single-item faction or quest commits.
+bool vendor_reward_current(const PendingItemAcquisition&) noexcept {
+    check(false, "unexpected faction reward validation");
+    return false;
+}
+bool investment_snapshot(InvestmentState&) noexcept {
+    check(false, "unexpected quest objective publication");
+    return false;
+}
 void revoke_season_pass_reward(std::uint16_t) noexcept {
     check(false, "unexpected Season revoke");
 }
