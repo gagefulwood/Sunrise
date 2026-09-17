@@ -11,6 +11,7 @@
 #include "../build_data/items/quest_initialization.h"
 #include "../build_data/records/definition.h"
 #include "state.h"
+#include "state_vendor_reputation_runtime.h"
 
 namespace sunrise::state::account::settings {
 
@@ -155,6 +156,7 @@ struct PendingItemAcquisition {
     std::array<PendingObjectiveCredit, account::inventory::kCharacterItemCapacity>
         objectiveCredits{};
     std::size_t objectiveCreditCount{};
+    VendorRewardClaim vendorReward{};
     bool prepared{};
 
     /**

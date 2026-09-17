@@ -9,6 +9,8 @@
 #include <string_view>
 
 #include "../../core/logging/log.h"
+#include "../../middleware/crypto/random_bytes.h"
+#include "../../middleware/encoding/byte_order.h"
 #include "../../middleware/web_service/messages/opcode1820.h"
 #include "../../middleware/web_service/messages/opcode901/opcode901_codec.h"
 #include "../../middleware/web_service/messages/opcode904/opcode904_codec.h"
@@ -641,6 +643,14 @@ void settle_vendor_row(const middleware::web_service::Message& message,
                        std::int32_t categoryIndex,
                        std::uint16_t itemDefinitionIndex,
                        Outcome& outcome) noexcept {
+    // Rank rewards are claimed by interaction; a sale request must not bypass its credit debit.
+    if (vendorIndex >= 0 && vendorIndex <= (std::numeric_limits<std::uint16_t>::max)()
+        && state::is_vendor_reward_category(static_cast<std::uint16_t>(vendorIndex),
+                                            categoryIndex)) {
+        report_purchase(
+            opcode, "fail", "reward_requires_reply", vendorIndex, rowIndex, itemDefinitionIndex);
+        return;
+    }
     if (vendorIndex >= 0 && rowIndex >= 0
         && vendorIndex <= (std::numeric_limits<std::uint16_t>::max)()
         && rowIndex <= (std::numeric_limits<std::uint16_t>::max)()) {
@@ -742,6 +752,56 @@ void acquire_quest(const middleware::web_service::Message& message, Outcome& out
         return;
     }
     const std::int32_t row = request.saleIndex;
+    // Logical -1 is the only absent sale marker; all three selectors must be nonnegative.
+    if (row < quest::kAbsentSaleIndex || request.vendorIndex < 0 || request.slotIndex < 0
+        || request.third < 0) {
+        report_purchase(quest::kOpcode,
+                        "fail",
+                        "selectors",
+                        request.vendorIndex,
+                        row,
+                        kUnavailableDefinitionIndex);
+        return;
+    }
+    if (row == quest::kAbsentSaleIndex) {
+        auto* reward = emplace_mutation<state::PendingItemAcquisition>(outcome);
+        std::array<std::byte, sizeof(std::uint32_t)> randomBytes{};
+        if (reward == nullptr || !middleware::crypto::random::fill(randomBytes)) {
+            clear_mutation(outcome);
+            report_purchase(quest::kOpcode,
+                            "fail",
+                            "reward_prepare",
+                            request.vendorIndex,
+                            row,
+                            kUnavailableDefinitionIndex);
+            return;
+        }
+        const auto disposition =
+            state::prepare_vendor_reward(static_cast<std::uint16_t>(request.vendorIndex),
+                                         static_cast<std::uint16_t>(request.slotIndex),
+                                         static_cast<std::uint16_t>(request.third),
+                                         middleware::encoding::read_u32_le(randomBytes),
+                                         *reward);
+        if (disposition == state::VendorReputationDisposition::prepared) {
+            report_purchase(quest::kOpcode,
+                            "ok",
+                            "rank_reward",
+                            request.vendorIndex,
+                            row,
+                            kUnavailableDefinitionIndex);
+            return;
+        }
+        clear_mutation(outcome);
+        if (disposition == state::VendorReputationDisposition::refused) {
+            report_purchase(quest::kOpcode,
+                            "fail",
+                            "rank_reward",
+                            request.vendorIndex,
+                            row,
+                            kUnavailableDefinitionIndex);
+            return;
+        }
+    }
     std::uint16_t itemDefinitionIndex = 0;
     const char* reason = "unknown";
     const bool rowless = row < 0;
