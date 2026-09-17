@@ -9,6 +9,7 @@
 #include "../build_data/items/quest_initialization.h"
 #include "../build_data/records/definition.h"
 #include "state.h"
+#include "state_vendor_reputation_runtime.h"
 
 namespace sunrise::state::account::settings {
 
@@ -138,6 +139,7 @@ struct PendingItemAcquisition {
     bool directGrant{};
     build_data::items::QuestInitialization questInitialization{};
     std::int32_t previousQuestValue{};
+    VendorRewardClaim vendorReward{};
     bool prepared{};
 
     /**
