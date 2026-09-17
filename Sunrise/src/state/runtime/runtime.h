@@ -9,6 +9,7 @@
 #include "../build_data/items/quest_initialization.h"
 #include "../build_data/records/definition.h"
 #include "state.h"
+#include "state_vendor_bundle_runtime.h"
 
 namespace sunrise::state::account::settings {
 
@@ -256,6 +257,8 @@ struct PendingRecordRewardGrant {
     std::array<PreparedRecordReward, kRecordRewardGrantCapacity> rewards{};
     /** Record claimed with this grant, already written to the banks, or the unclaimed row. */
     std::uint16_t claimedRecordIndex{kUnclaimedRecordIndex};
+    /** Vendor bundles claim an account flag in the same transaction as their item rows. */
+    std::optional<VendorBundleClaim> vendorBundle{};
     std::uint64_t accountSoid{};
     std::uint64_t characterSoid{};
     std::size_t characterIndex{};
@@ -573,6 +576,11 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
 /** Builds the full account after-image while a record reward remains current. */
 [[nodiscard]] bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
                                                AccountState& after) noexcept;
+
+/** Previews the grant and account claim together without changing saved state. */
+[[nodiscard]] bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
+                                               AccountState& after,
+                                               unlocks::Table& afterUnlocks) noexcept;
 
 /** Reserves the selected character's next mutation serial for a transient inventory update. */
 [[nodiscard]] bool

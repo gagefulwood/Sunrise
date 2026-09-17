@@ -150,6 +150,7 @@
     <ClCompile Include="src\state\runtime\state_account_runtime.cpp" />
     <ClCompile Include="src\state\runtime\state_account_acquisition_runtime.cpp" />
     <ClCompile Include="src\state\runtime\state_account_reward_grant_runtime.cpp" />
+    <ClCompile Include="src\state\runtime\state_vendor_bundle_runtime.cpp" />
     <ClCompile Include="src\state\runtime\state_account_dismantle_runtime.cpp" />
     <ClCompile Include="src\state\runtime\state_account_dismantle_staging.cpp" />
     <ClCompile Include="src\state\runtime\state_account_equipment_runtime.cpp" />
