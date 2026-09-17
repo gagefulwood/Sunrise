@@ -299,7 +299,9 @@ namespace {
             const auto* binding = emote_ownership(reward.definitionHash);
             std::int32_t saved{};
             if (binding == nullptr || item.bucketId != kEmoteBucket
-                || item.plugCategoryHash != kEmotePlugCategory || detail.equipmentSlot.has_value()
+                || item.plugCategoryHash != kEmotePlugCategory
+                || detail.equipmentSlot
+                       != static_cast<std::int8_t>(authored_inventory::EquipmentSlot::emote)
                 || detail.instancedDefinitionState
                        != item_details::InstancedDefinitionState::instanced
                 || reward.stateIndex != binding->accountRow || reward.quantity != 1
@@ -426,7 +428,9 @@ bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
         if (const auto* binding = emote_ownership(item.definitionHash)) {
             std::int32_t saved{};
             if (requested.quantity != 1 || item.bucketId != kEmoteBucket
-                || item.plugCategoryHash != kEmotePlugCategory || detail.equipmentSlot.has_value()
+                || item.plugCategoryHash != kEmotePlugCategory
+                || detail.equipmentSlot
+                       != static_cast<std::int8_t>(authored_inventory::EquipmentSlot::emote)
                 || detail.instancedDefinitionState
                        != item_details::InstancedDefinitionState::instanced
                 || !investment::store::read_unlock(
