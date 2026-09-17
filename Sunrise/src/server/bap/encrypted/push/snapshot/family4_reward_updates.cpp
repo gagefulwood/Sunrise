@@ -234,8 +234,9 @@ bool prepare_record_reward_grant(
     }
 
     state::AccountState account{};
+    state::unlocks::Table afterUnlocks{};
     Resolved selected{};
-    if (!state::preview_record_reward_grant(mutation, account)
+    if (!state::preview_record_reward_grant(mutation, account, afterUnlocks)
         || mutation.characterIndex >= account.characterCount
         || account.primarySoid != update.accountSoid
         || account.characters[mutation.characterIndex].soid != update.characterSoid
@@ -402,7 +403,7 @@ bool prepare_record_reward_grant(
     }
 
     const auto accountBytes = rawStorage.first(account_layout::kObjectSize);
-    if (!family4_datagen::account::encode(account, accountBytes)) {
+    if (!family4_datagen::account::encode(account, accountBytes, afterUnlocks)) {
         clear_after(scratch, reservation);
         return report_failure("record_reward_account_encode");
     }

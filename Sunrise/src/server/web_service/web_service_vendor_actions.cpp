@@ -692,6 +692,26 @@ void settle_vendor_row(const middleware::web_service::Message& message,
             return;
         }
     }
+    if (vendorIndex >= 0 && rowIndex >= 0
+        && vendorIndex <= (std::numeric_limits<std::uint16_t>::max)()
+        && rowIndex <= (std::numeric_limits<std::uint16_t>::max)()) {
+        auto* bundle = emplace_mutation<state::PendingRecordRewardGrant>(outcome);
+        if (bundle == nullptr) {
+            report_purchase(opcode, "fail", "storage", vendorIndex, rowIndex, itemDefinitionIndex);
+            return;
+        }
+        const auto disposition = state::prepare_vendor_bundle(
+            static_cast<std::uint16_t>(vendorIndex), static_cast<std::uint16_t>(rowIndex), *bundle);
+        if (disposition == state::VendorBundleDisposition::prepared) {
+            report_purchase(opcode, "ok", "bundle", vendorIndex, rowIndex, itemDefinitionIndex);
+            return;
+        }
+        clear_mutation(outcome);
+        if (disposition == state::VendorBundleDisposition::refused) {
+            report_purchase(opcode, "fail", "bundle", vendorIndex, rowIndex, itemDefinitionIndex);
+            return;
+        }
+    }
     std::uint16_t rolledBounty = kUnavailableDefinitionIndex;
     if (roll_vendor_bounty(vendorIndex, categoryIndex, rolledBounty)) {
         report_purchase(opcode,

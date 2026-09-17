@@ -141,6 +141,14 @@ namespace {
     }
 
     after = current;
+    if (mutation.vendorBundle.has_value()) {
+        unlocks::Table banks{};
+        std::uint16_t claimRow{};
+        if (!investment::store::read_unlocks(banks, static_cast<int>(mutation.characterIndex))
+            || !vendor_bundle_claim_row(mutation, banks, claimRow)) {
+            return false;
+        }
+    }
     after.characters[mutation.characterIndex] = mutation.afterCharacter;
     after.profileItems = mutation.afterProfileItems;
     after.profileItemCount = mutation.afterProfileItemCount;
@@ -375,20 +383,63 @@ bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
 
 bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
                                  AccountState& after) noexcept {
+    const std::lock_guard lock(investment::store::g_mutex);
     after = {};
     return materialize_record_reward(account_snapshot(), mutation, after);
 }
 
-/** Commits the shared reward after-image and claim together. */
+/**
+ * Preview the account claim in the same publication as the bundle's inventory rows.
+ * @param mutation Prepared grant checked against saved state.
+ * @param after Receives the candidate account; use only on success.
+ * @param afterUnlocks Receives unlocks with the pending account claim applied.
+ * @return False for stale state, failed reads or a changed bundle binding.
+ */
+bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
+                                 AccountState& after,
+                                 unlocks::Table& afterUnlocks) noexcept {
+    const std::lock_guard lock(investment::store::g_mutex);
+    after = {};
+    afterUnlocks = {};
+    if (!materialize_record_reward(account_snapshot(), mutation, after)
+        || !investment::store::read_unlocks(afterUnlocks,
+                                            static_cast<int>(mutation.characterIndex))) {
+        return false;
+    }
+    if (mutation.vendorBundle.has_value()) {
+        std::uint16_t claimRow{};
+        if (!vendor_bundle_claim_row(mutation, afterUnlocks, claimRow)) {
+            return false;
+        }
+        afterUnlocks.accountFlags[claimRow] = unlocks::kFlagSet;
+    }
+    return true;
+}
+
+/**
+ * Inventory and a vendor bundle's account claim share one rollback boundary.
+ * @param mutation Prepared grant consumed on success or refusal.
+ * @return False when the grant is stale or any write fails.
+ */
 bool commit_record_reward(PendingRecordRewardGrant& mutation) noexcept {
     const PendingConsumption consume{mutation};
-    investment::store::g_mutex.lock();
-    AccountState after{};
-    bool ready = materialize_record_reward(investment::store::account(), mutation, after);
-    if (ready) {
-        ready = investment::store::write_account(after);
+    bool ready = false;
+    {
+        investment::store::Transaction transaction;
+        AccountState after{};
+        unlocks::Table banks{};
+        std::uint16_t claimRow{};
+        ready = transaction.ready()
+                && materialize_record_reward(investment::store::account(), mutation, after);
+        if (ready && mutation.vendorBundle.has_value()) {
+            ready =
+                investment::store::read_unlocks(banks, static_cast<int>(mutation.characterIndex))
+                && vendor_bundle_claim_row(mutation, banks, claimRow)
+                && investment::store::write_unlock(
+                    investment::store::Bank::accountFlags, claimRow, unlocks::kFlagSet);
+        }
+        ready = ready && investment::store::write_account(after) && transaction.commit();
     }
-    investment::store::g_mutex.unlock();
     if (!ready && mutation.claimedRecordIndex != kUnclaimedRecordIndex) {
         // The claim was written when the reward was prepared, so a refused install undoes it.
         unlocks::records::revoke(mutation.claimedRecordIndex);
