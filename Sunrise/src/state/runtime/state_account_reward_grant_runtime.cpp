@@ -28,6 +28,52 @@ namespace family4_loadout = middleware::datagen::family4::loadout;
 
 namespace {
 
+/** Build-86657 emote plugs use native inventory bucket 41, without equipment instances. */
+constexpr std::uint8_t kEmoteBucket = 41;
+/** The installed emote plug category must match before a reward can unlock ownership. */
+constexpr std::uint32_t kEmotePlugCategory = 3054419239U;
+
+struct EmoteOwnership {
+    std::uint32_t definitionHash;
+    std::uint16_t accountRow;
+};
+
+/** Only these build-86657 ownership predicates have supported reward bindings. */
+constexpr std::array kEmoteOwnership{
+    // Coin Flip reads FLAG[7372], mapped to acquired-flags row 4450.
+    EmoteOwnership{801733632U, 4450},
+    // Knife Trick reads FLAG[7373], mapped to acquired-flags row 4451.
+    EmoteOwnership{3921851413U, 4451},
+};
+
+/** @param hash Installed emote hash. @return Its supported ownership binding, or null. */
+const EmoteOwnership* emote_ownership(std::uint32_t hash) noexcept {
+    for (const auto& binding : kEmoteOwnership) {
+        if (binding.definitionHash == hash) {
+            return &binding;
+        }
+    }
+    return nullptr;
+}
+
+/**
+ * Writes only the ownership rows of an already validated reward batch.
+ * @param mutation Validated batch under the investment transaction lock.
+ * @return False when any write fails; the caller must roll back the whole transaction.
+ */
+bool write_reward_unlocks(const PendingRecordRewardGrant& mutation) noexcept {
+    for (std::size_t index = 0; index < mutation.rewardCount; ++index) {
+        const auto& reward = mutation.rewards[index];
+        if (reward.kind == RecordRewardKind::accountUnlock
+            && !investment::store::write_unlock(investment::store::Bank::accountFlags,
+                                                static_cast<std::uint16_t>(reward.stateIndex),
+                                                unlocks::kFlagSet)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 [[nodiscard]] bool materialize_record_reward(const AccountState& current,
                                              const PendingRecordRewardGrant& mutation,
                                              AccountState& after) noexcept;
@@ -172,7 +218,24 @@ namespace {
             || !build_data::find_inventory_bucket_descriptor(item.bucketId, bucket)) {
             return false;
         }
-        if (reward.kind == RecordRewardKind::characterInstance) {
+        if (reward.kind == RecordRewardKind::accountUnlock) {
+            const auto* binding = emote_ownership(reward.definitionHash);
+            std::int32_t saved{};
+            if (binding == nullptr || item.bucketId != kEmoteBucket
+                || item.plugCategoryHash != kEmotePlugCategory || detail.equipmentSlot.has_value()
+                || detail.instancedDefinitionState
+                       != item_details::InstancedDefinitionState::instanced
+                || reward.stateIndex != binding->accountRow || reward.quantity != 1
+                || reward.afterQuantity != 1 || reward.instanceSoid != 0
+                || reward.mutationSerial != 0 || reward.inventoryRow != 0
+                || reward.appendedProfileResident
+                || !investment::store::read_unlock(
+                    investment::store::Bank::accountFlags, binding->accountRow, saved)
+                || (saved != unlocks::kFlagClear && saved != unlocks::kFlagSet)
+                || saved != reward.previousUnlock) {
+                return false;
+            }
+        } else if (reward.kind == RecordRewardKind::characterInstance) {
             if (reward.quantity != 1 || reward.afterQuantity != 1 || reward.instanceSoid == 0
                 || reward.appendedProfileResident || !detail.equipmentSlot.has_value()
                 || detail.instancedDefinitionState
@@ -235,7 +298,13 @@ namespace {
 
 } // namespace
 
-/** Prepares every reward over one cumulative account view. */
+/**
+ * Prepares every reward over one locked account and ownership snapshot.
+ * @param rewards Installed item selectors and quantities to grant.
+ * @param claimedRecordIndex Preclaimed record, or kUnclaimedRecordIndex for direct rewards.
+ * @param mutation Receives the batch; use only when preparation succeeds.
+ * @return False when any item, ownership encoding or capacity is unsupported.
+ */
 bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
                                  std::uint16_t claimedRecordIndex,
                                  PendingRecordRewardGrant& mutation) noexcept {
@@ -243,6 +312,7 @@ bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
     if (rewards.empty() || rewards.size() > mutation.rewards.size()) {
         return false;
     }
+    const std::lock_guard lock(investment::store::g_mutex);
     const AccountState account = account_snapshot();
     const std::size_t characterIndex = selected_character_index(account);
     if (!account::valid(account) || !valid_profile_inventory(account)
@@ -264,7 +334,8 @@ bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
             || !build_data::find_inventory_bucket_descriptor(item.bucketId, bucket)) {
             return false;
         }
-        if (detail.instancedDefinitionState == item_details::InstancedDefinitionState::stackable) {
+        if (detail.instancedDefinitionState == item_details::InstancedDefinitionState::stackable
+            || emote_ownership(item.definitionHash) != nullptr) {
             for (std::size_t prior = 0; prior < index; ++prior) {
                 if (mutation.rewards[prior].definitionHash == item.definitionHash) {
                     return false;
@@ -275,7 +346,22 @@ bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
         PreparedRecordReward prepared{};
         prepared.definitionHash = item.definitionHash;
         prepared.quantity = requested.quantity;
-        if (bucket.arraySelector == inventory_buckets::ArraySelector::profile) {
+        if (const auto* binding = emote_ownership(item.definitionHash)) {
+            std::int32_t saved{};
+            if (requested.quantity != 1 || item.bucketId != kEmoteBucket
+                || item.plugCategoryHash != kEmotePlugCategory || detail.equipmentSlot.has_value()
+                || detail.instancedDefinitionState
+                       != item_details::InstancedDefinitionState::instanced
+                || !investment::store::read_unlock(
+                    investment::store::Bank::accountFlags, binding->accountRow, saved)
+                || (saved != unlocks::kFlagClear && saved != unlocks::kFlagSet)) {
+                return false;
+            }
+            prepared.stateIndex = binding->accountRow;
+            prepared.previousUnlock = static_cast<std::uint8_t>(saved);
+            prepared.afterQuantity = 1;
+            prepared.kind = RecordRewardKind::accountUnlock;
+        } else if (bucket.arraySelector == inventory_buckets::ArraySelector::profile) {
             if (detail.instancedDefinitionState
                 != item_details::InstancedDefinitionState::stackable) {
                 return false;
@@ -389,10 +475,10 @@ bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
 }
 
 /**
- * Preview the account claim in the same publication as the bundle's inventory rows.
+ * Preview inventory, reward ownership and account claims in the same publication.
  * @param mutation Prepared grant checked against saved state.
  * @param after Receives the candidate account; use only on success.
- * @param afterUnlocks Receives unlocks with the pending account claim applied.
+ * @param afterUnlocks Receives unlocks with pending ownership and account claims applied.
  * @return False for stale state, failed reads or a changed bundle binding.
  */
 bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
@@ -413,11 +499,17 @@ bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
         }
         afterUnlocks.accountFlags[claimRow] = unlocks::kFlagSet;
     }
+    for (std::size_t index = 0; index < mutation.rewardCount; ++index) {
+        const auto& reward = mutation.rewards[index];
+        if (reward.kind == RecordRewardKind::accountUnlock) {
+            afterUnlocks.accountFlags[reward.stateIndex] = unlocks::kFlagSet;
+        }
+    }
     return true;
 }
 
 /**
- * Inventory and a vendor bundle's account claim share one rollback boundary.
+ * Inventory, permanent ownership and account claims share one rollback boundary.
  * @param mutation Prepared grant consumed on success or refusal.
  * @return False when the grant is stale or any write fails.
  */
@@ -438,7 +530,8 @@ bool commit_record_reward(PendingRecordRewardGrant& mutation) noexcept {
                 && investment::store::write_unlock(
                     investment::store::Bank::accountFlags, claimRow, unlocks::kFlagSet);
         }
-        ready = ready && investment::store::write_account(after) && transaction.commit();
+        ready = ready && write_reward_unlocks(mutation) && investment::store::write_account(after)
+                && transaction.commit();
     }
     if (!ready && mutation.claimedRecordIndex != kUnclaimedRecordIndex) {
         // The claim was written when the reward was prepared, so a refused install undoes it.

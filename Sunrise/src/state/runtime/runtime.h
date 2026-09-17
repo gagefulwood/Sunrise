@@ -247,6 +247,8 @@ enum class RecordRewardKind : std::uint8_t {
     characterInstance,
     characterStack,
     profileStack,
+    /** Permanent ownership is an account flag, not an inventory instance. */
+    accountUnlock,
 };
 
 /** Native row identity of one item inside a prepared record-reward batch. */
@@ -260,6 +262,8 @@ struct PreparedRecordReward {
     std::uint16_t inventoryRow{};
     RecordRewardKind kind{};
     bool appendedProfileResident{};
+    /** Account unlock rewards retain the prior flag for stale-grant checks. */
+    std::uint8_t previousUnlock{};
 };
 
 /** A reward grant that claims no record carries this instead of a record row. */
@@ -601,7 +605,7 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
 [[nodiscard]] bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
                                                AccountState& after) noexcept;
 
-/** Previews the grant and account claim together without changing saved state. */
+/** Previews inventory, reward ownership and account claims without changing saved state. */
 [[nodiscard]] bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
                                                AccountState& after,
                                                unlocks::Table& afterUnlocks) noexcept;

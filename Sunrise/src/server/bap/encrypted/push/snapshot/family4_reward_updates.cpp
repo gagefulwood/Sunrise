@@ -347,7 +347,8 @@ bool prepare_record_reward_grant(
     std::size_t characterChanges = 0;
     for (std::size_t rewardIndex = 0; rewardIndex < mutation.rewardCount; ++rewardIndex) {
         const state::PreparedRecordReward& reward = mutation.rewards[rewardIndex];
-        if (reward.kind == state::RecordRewardKind::profileStack) {
+        if (reward.kind == state::RecordRewardKind::profileStack
+            || reward.kind == state::RecordRewardKind::accountUnlock) {
             continue;
         }
         state::build_data::items::Definition definition{};
