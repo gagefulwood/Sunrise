@@ -51,8 +51,6 @@ constexpr std::array kEmoteOwnership{
 constexpr std::uint32_t kZavalaHash = 69482069U;
 constexpr std::uint16_t kGratitudeSale = 106;
 constexpr std::int32_t kSpecialOrdersCategory = 17;
-/** The source is consumed on acquisition, not retained as an empty package. */
-constexpr std::uint32_t kGratitudePackageHash = 2800872395U;
 /** FLAG[7243] uses profile row 217; NOT FLAG[7618] uses account row 4634. */
 constexpr std::uint16_t kGratitudeEligibilityRow = 217;
 constexpr std::uint16_t kGratitudeClaimRow = 4634;
@@ -68,6 +66,8 @@ constexpr std::array kGratitudeRewardHashes{
     3196288028U, // Boon of the Crucible.
     2891979647U, // Finest Matterweave.
 };
+/** Provisional server policy: one of each reward; retail stack quantities remain unresolved. */
+constexpr std::int32_t kGratitudeRewardQuantity = 1;
 
 /**
  * Rechecks the installed free sale and both account-scoped purchase predicates.
@@ -534,6 +534,28 @@ bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
     mutation.rewardCount = rewards.size();
     mutation.prepared = true;
     return true;
+}
+
+/**
+ * Resolves the provisional payout through installed content before preparing any claim.
+ * @param vendorIndex Installed vendor selector.
+ * @param saleIndex Gift sale selector.
+ * @param mutation Receives the grant, or a cleared value on failure.
+ * @return False when any reward is unavailable or the gift transaction is refused.
+ */
+bool prepare_gratitude_package(std::uint16_t vendorIndex,
+                               std::uint16_t saleIndex,
+                               PendingRecordRewardGrant& mutation) noexcept {
+    mutation = {};
+    std::array<DirectRecordReward, kGratitudeRewardHashes.size()> rewards{};
+    for (std::size_t index = 0; index < rewards.size(); ++index) {
+        build_data::items::Definition item{};
+        if (!build_data::find_item_definition_hash(kGratitudeRewardHashes[index], item)) {
+            return false;
+        }
+        rewards[index] = {item.definitionIndex, kGratitudeRewardQuantity};
+    }
+    return prepare_gratitude_package(vendorIndex, saleIndex, rewards, mutation);
 }
 
 /**

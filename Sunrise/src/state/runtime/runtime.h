@@ -577,6 +577,14 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
                                                std::uint16_t claimedRecordIndex,
                                                PendingRecordRewardGrant& mutation) noexcept;
 
+/** Build-86657 gift wrapper consumed by the reward batch, never granted as an empty item. */
+inline constexpr std::uint32_t kGratitudePackageHash = 2800872395U;
+
+/** Prepares the provisional one-of-each Gratitude payout, not recovered retail stack quantities. */
+[[nodiscard]] bool prepare_gratitude_package(std::uint16_t vendorIndex,
+                                             std::uint16_t saleIndex,
+                                             PendingRecordRewardGrant& mutation) noexcept;
+
 /**
  * Prepares the Gratitude Package with an explicit server-owned payout, never request quantities.
  * @param vendorIndex Installed vendor selector.
