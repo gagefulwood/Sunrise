@@ -267,6 +267,12 @@ bool is_socket_plug_allowed(std::uint16_t, std::uint8_t, std::uint16_t) noexcept
 bool find_season_pass_reward(std::uint16_t, season_pass::Reward&) noexcept {
     return false;
 }
+/**
+ * Only the active fixture's wrapper and available gear resolve.
+ * @param index Wrapper or gear index in the active fixture.
+ * @param definition Reset, then receives index and bucket, plus the fixture hash on success.
+ * @return True for the wrapper or available gear; false for invalid indices or missing gear.
+ */
 bool find_item_definition_index(std::uint16_t index, items::Definition& definition) noexcept {
     definition = {};
     definition.definitionIndex = index;
@@ -290,6 +296,12 @@ bool find_item_definition_hash(std::uint32_t hash, items::Definition& definition
     }
     return false;
 }
+/**
+ * Only available fixture gear has configured details; the wrapper has none.
+ * @param definitionIndex Gear definition index in the active fixture.
+ * @param definition Reset on entry; receives gear details on success and stays reset on failure.
+ * @return False for the wrapper, invalid indices or missing gear; true otherwise.
+ */
 bool find_configured_item_detail(std::uint16_t definitionIndex,
                                  items::details::Definition& definition) noexcept {
     items::Definition item{};
