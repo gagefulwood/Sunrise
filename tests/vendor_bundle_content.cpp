@@ -95,10 +95,16 @@ std::size_t array(Bytes& bytes,
 struct Fixture {
     Bytes item = Bytes(kPrefixBytes), rewards = Bytes(kPrefixBytes);
     Bytes vendor = Bytes(kPrefixBytes), flags = Bytes(kPrefixBytes), pools = Bytes(kPrefixBytes);
-    std::size_t rewardAt{}, claimAt{}, poolAt{}, claimProgram{}, parameterAt{};
+    std::size_t rewardAt{}, claimAt{}, poolAt{}, claimProgram{}, parameterAt{}, purchaseField{};
 
-    /** @param memberCount Authored direct reward count, independent of the gate count. */
-    explicit Fixture(std::size_t memberCount = kArmourPieces) {
+    /**
+     * @param memberCount Authored direct reward count.
+     * @param requiredCount Independent number of saved prerequisites.
+     * @param reversed Exchange the class and pool expressions without changing their meaning.
+     */
+    explicit Fixture(std::size_t memberCount = kArmourPieces,
+                     std::size_t requiredCount = kArmourPieces,
+                     bool reversed = false) {
         put(item, kSackPointer, static_cast<std::int64_t>(kSackBlock - kSackPointer));
         put(item, kSackBlock - sizeof(kSackClass), kSackClass);
         const auto parameters =
@@ -118,12 +124,16 @@ struct Fixture {
             put(rewards, at + kGroupOffset, kGroup);
         }
         const auto sale = array(vendor, kSalesArray, 1, kSaleStride, kSaleClass);
+        purchaseField = sale + kPurchaseArray;
         // Native purchase order is class, unclaimed, then prerequisite pool.
         constexpr std::size_t kGateCount = 3;
         const auto expressions =
             array(vendor, sale + kPurchaseArray, kGateCount, kDescriptorBytes, kExpressionClass);
-        const auto classProgram =
-            array(vendor, expressions, 1, kInstructionStride, kInstructionClass);
+        const auto classProgram = array(vendor,
+                                        expressions + (reversed ? 2 : 0) * kDescriptorBytes,
+                                        1,
+                                        kInstructionStride,
+                                        kInstructionClass);
         put(vendor, classProgram, kFlagOpcode);
         put(vendor, classProgram + sizeof(kFlagOpcode), kHunterFlag);
         claimProgram =
@@ -131,27 +141,30 @@ struct Fixture {
         put(vendor, claimProgram, kFlagOpcode);
         put(vendor, claimProgram + sizeof(kFlagOpcode), std::uint32_t{kClaimSlot});
         put(vendor, claimProgram + kInstructionStride, kNotOpcode);
-        const auto poolProgram = array(
-            vendor, expressions + 2 * kDescriptorBytes, 1, kInstructionStride, kInstructionClass);
+        const auto poolProgram = array(vendor,
+                                       expressions + (reversed ? 0 : 2) * kDescriptorBytes,
+                                       1,
+                                       kInstructionStride,
+                                       kInstructionClass);
         put(vendor, poolProgram, kPoolOpcode);
         const auto pool = array(pools, kTableArray, 1, kListStride, kPoolClass);
         poolAt = array(pools,
                        pool + kTableArray,
-                       kArmourPieces * 2 - 1,
+                       requiredCount * 2 - 1,
                        kInstructionStride,
                        kInstructionClass);
-        for (std::size_t index = 0; index < kArmourPieces; ++index) {
+        for (std::size_t index = 0; index < requiredCount; ++index) {
             const auto at = poolAt + index * kInstructionStride;
             put(pools, at, kFlagOpcode);
             put(pools, at + sizeof(kFlagOpcode), static_cast<std::uint32_t>(kFirstFlag + index));
         }
-        for (std::size_t index = kArmourPieces; index < kArmourPieces * 2 - 1; ++index) {
+        for (std::size_t index = requiredCount; index < requiredCount * 2 - 1; ++index) {
             put(pools, poolAt + index * kInstructionStride, kAndOpcode);
         }
-        claimAt = array(flags, kTableArray, kArmourPieces + 1, kMapStride, kMapClass);
+        claimAt = array(flags, kTableArray, requiredCount + 1, kMapStride, kMapClass);
         put(flags, claimAt, bundles::kClaimEffects.front().flagHash);
         put(flags, claimAt + sizeof(std::uint32_t), kClaimSlot);
-        for (std::size_t index = 0; index < kArmourPieces; ++index) {
+        for (std::size_t index = 0; index < requiredCount; ++index) {
             const auto at = claimAt + (index + 1) * kMapStride;
             put(flags, at + sizeof(std::uint32_t), static_cast<std::uint16_t>(kFirstFlag + index));
         }
@@ -176,11 +189,48 @@ void synthetic_checks() {
         return tables::read_vendor_bundle(
             fixture.source(), bundles::kClaimEffects.front(), 0, parsed);
     };
-    check(read() && parsed.claimRow == 0
+    check(read() && parsed.claimRow == 0 && parsed.requiredCount == kArmourPieces
               && parsed.rewards.members.front().itemDefinitionIndex == kFirstItem
               && parsed.requiredRows.front() == 1
               && parsed.characterClass == sunrise::state::CharacterClass::hunter,
           "relocated native members and flag mappings, not installed constants");
+    fixture = Fixture{1, 1, true};
+    check(read() && parsed.requiredCount == 1 && parsed.rewards.count == 1,
+          "reordered gates and independent single prerequisite/member");
+    fixture = Fixture{1, bundles::kRequirementCapacity};
+    check(read() && parsed.requiredCount == bundles::kRequirementCapacity,
+          "prerequisite count follows content rather than armour slot count");
+    fixture = Fixture{1, bundles::kRequirementCapacity + 1};
+    check(!read(), "excess prerequisites refuse without truncation");
+    fixture = Fixture{};
+    put(fixture.pools, fixture.poolAt, kPoolOpcode);
+    put(fixture.pools, fixture.poolAt + sizeof(kPoolOpcode), std::uint32_t{0});
+    check(!read(), "cyclic expression pool is bounded and refused");
+    fixture = Fixture{};
+    const auto nestedPools = array(fixture.pools, kTableArray, 2, kListStride, kPoolClass);
+    const auto outer =
+        array(fixture.pools, nestedPools + kTableArray, 1, kInstructionStride, kInstructionClass);
+    put(fixture.pools, outer, kPoolOpcode);
+    put(fixture.pools, outer + sizeof(kPoolOpcode), std::uint32_t{1});
+    const auto inner = array(fixture.pools,
+                             nestedPools + kListStride + kTableArray,
+                             1,
+                             kInstructionStride,
+                             kInstructionClass);
+    put(fixture.pools, inner, kFlagOpcode);
+    put(fixture.pools, inner + sizeof(kFlagOpcode), std::uint32_t{kFirstFlag});
+    check(read() && parsed.requiredCount == 1, "nested prerequisite pools resolve normally");
+    fixture = Fixture{};
+    const auto onlyGate =
+        array(fixture.vendor, fixture.purchaseField, 1, kDescriptorBytes, kExpressionClass);
+    const auto onlyProgram =
+        array(fixture.vendor, onlyGate, 2, kInstructionStride, kInstructionClass);
+    put(fixture.vendor, onlyProgram, kFlagOpcode);
+    put(fixture.vendor, onlyProgram + sizeof(kFlagOpcode), std::uint32_t{kClaimSlot});
+    put(fixture.vendor, onlyProgram + kInstructionStride, kNotOpcode);
+    check(read() && parsed.requiredCount == 0 && !parsed.characterClass.has_value(),
+          "unclaimed-only contract does not invent class or armour prerequisites");
+    fixture = Fixture{};
     auto changed = static_cast<std::uint16_t>(kFirstItem + kArmourPieces);
     put(fixture.rewards, fixture.rewardAt, changed);
     check(read() && parsed.rewards.members.front().itemDefinitionIndex == changed,
@@ -347,15 +397,15 @@ int main(int argc, char** argv) {
                                      static_cast<std::uint16_t>(sale),
                                      result),
           "retained native read");
-    std::printf("PASS: native source=%u class=%u claimRow=%u items=",
+    std::printf("PASS: native source=%u classRestricted=%d claimRow=%u items=",
                 result.sourceHash,
-                static_cast<unsigned>(result.characterClass),
+                result.characterClass.has_value(),
                 result.claimRow);
     for (auto member : std::span(result.rewards.members).first(result.rewards.count)) {
         std::printf(" %u:%d", member.itemDefinitionIndex, member.quantity);
     }
     std::printf(" prerequisiteRows=");
-    for (auto row : result.requiredRows) {
+    for (auto row : std::span(result.requiredRows).first(result.requiredCount)) {
         std::printf(" %u", row);
     }
     std::puts("");

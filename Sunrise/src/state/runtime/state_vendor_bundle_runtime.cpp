@@ -53,10 +53,11 @@ bool eligible(const bundles::Definition& rule,
     build_data::vendors::Definition vendor{};
     build_data::vendors::SaleRow sale{};
     build_data::items::Definition item{};
-    return characterClass == rule.characterClass
+    return (!rule.characterClass.has_value() || characterClass == *rule.characterClass)
            && banks.accountFlags[rule.claimRow] != unlocks::kFlagSet
            && std::all_of(rule.requiredRows.begin(),
-                          rule.requiredRows.end(),
+                          rule.requiredRows.begin()
+                              + static_cast<std::ptrdiff_t>(rule.requiredCount),
                           [&](auto row) { return banks.accountFlags[row] == unlocks::kFlagSet; })
            && build_data::vendors::find_index(rule.vendorIndex, index)
            && build_data::vendors::find(index.definitionHash, vendor)

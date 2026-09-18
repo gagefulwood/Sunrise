@@ -56,7 +56,7 @@ bool find_sale(std::uint16_t itemIndex,
  * Rebuild process-local bundle plans even when the base vendor catalog came from disk cache.
  * @param source Installed package directory and borrowed block keys.
  * @param scratch Lock-owned package scratch storage.
- * @return True only after all supported bundles resolve from installed content.
+ * @return True after publishing the supported subset; individual failures remain unclaimable.
  */
 bool read_bundles(const reader::Source& source, reader::Scratch& scratch) noexcept {
     std::vector<std::byte> itemTable, rewards, flagMap, pools, itemBlob, vendorBlob;
@@ -74,11 +74,12 @@ bool read_bundles(const reader::Source& source, reader::Scratch& scratch) noexce
         return false;
     }
     std::array<bundles::Definition, bundles::kClaimEffects.size()> definitions{};
+    std::size_t definitionCount = 0;
     for (std::size_t effectIndex = 0; effectIndex < bundles::kClaimEffects.size(); ++effectIndex) {
         const auto& effect = bundles::kClaimEffects[effectIndex];
         tables::IndexRow wrapper{};
         std::uint16_t itemIndex{};
-        bool found = false;
+        std::size_t matches = 0;
         for (std::size_t index = 0; index < items.count; ++index) {
             tables::IndexRow row{};
             if (!tables::index_row(itemTable, items, index, row)) {
@@ -87,18 +88,15 @@ bool read_bundles(const reader::Source& source, reader::Scratch& scratch) noexce
             if (row.definitionHash != effect.itemHash) {
                 continue;
             }
-            if (found) {
-                return false;
-            }
-            found = true;
+            ++matches;
             wrapper = row;
             itemIndex = static_cast<std::uint16_t>(index);
         }
         domain::Definition vendor{};
         std::uint16_t saleIndex{};
         std::uint32_t itemClass{}, vendorClass{};
-        auto& definition = definitions[effectIndex];
-        if (!found
+        bundles::Definition definition{};
+        if (matches != 1
             || !find_sale(itemIndex, std::span(vendors).first(vendorCount), vendor, saleIndex)
             || !reader::read_tag(source, scratch, wrapper.targetTag, itemBlob, itemClass)
             || itemClass != tables::kItemDefinitionClass
@@ -113,19 +111,20 @@ bool read_bundles(const reader::Source& source, reader::Scratch& scratch) noexce
                                            effect,
                                            saleIndex,
                                            definition)) {
-            return false;
+            continue;
         }
         definition.vendorIndex = vendor.index;
+        definitions[definitionCount++] = definition;
     }
-    return bundles::replace(definitions);
+    return bundles::replace(std::span(definitions).first(definitionCount));
 }
 } // namespace
 
 /**
- * Extract once per base catalog; unsupported content disables bundles, not other startup domains.
+ * Extract once per base catalog; unsupported offers do not disable their supported siblings.
  * @param source Installed package directory and borrowed block keys.
  * @param scratch Lock-owned package storage.
- * @return True when all supported bundle definitions are available.
+ * @return True when at least one supported bundle definition is available.
  */
 bool build_bundles(const reader::Source& source, reader::Scratch& scratch) noexcept {
     if (bundles::settled()) {
@@ -135,7 +134,7 @@ bool build_bundles(const reader::Source& source, reader::Scratch& scratch) noexc
         return false;
     }
     if (read_bundles(source, scratch)) {
-        return true;
+        return bundles::ready();
     }
     bundles::unavailable();
     core::log::write(core::log::Channel::state,

@@ -120,6 +120,7 @@ void reset(const Fixture& fixture) {
         row.saleIndex = expected.sale;
         row.characterClass = expected.characterClass;
         row.claimRow = expected.claimRow;
+        row.requiredCount = kPieces;
         row.rewards.count = kPieces;
         for (std::size_t piece = 0; piece < kPieces; ++piece) {
             row.requiredRows[piece] = static_cast<std::uint16_t>(expected.firstRequiredRow + piece);
@@ -205,6 +206,19 @@ void verify() {
     }
     const auto& fixture = kFixtures.front();
     reset(fixture);
+    bundles::Definition supported{}, absent{};
+    check(bundles::find(fixture.wrapper, supported) && bundles::replace(std::span(&supported, 1))
+              && bundles::find(fixture.wrapper, absent)
+              && !bundles::find(kFixtures.back().wrapper, absent),
+          "one supported offer survives without its unsupported siblings");
+    prepare(pending);
+    const std::array duplicateDefinitions{supported, supported};
+    check(!bundles::replace(duplicateDefinitions) && bundles::find(fixture.wrapper, absent),
+          "duplicate extraction refuses without replacing the installed catalog");
+    check(bundles::replace({}) && bundles::settled() && !bundles::ready()
+              && !bundles::find(fixture.wrapper, absent),
+          "empty supported subset removes stale offers and settles startup");
+    reset(fixture);
     bundles::clear();
     check(!bundles::settled() && !bundles::ready()
               && state::prepare_vendor_bundle(kVendor, fixture.sale, pending)
@@ -276,8 +290,11 @@ void verify() {
           "ordinary batch grants do not acquire a vendor claim");
     check(g_recordRevocations == 0, "vendor refusals never revoke Triumphs");
 }
-/** Exercise the second consumer through the real Season commit and SQLite item store. */
-void verify_resource_package() {
+/**
+ * Exercise the second consumer through the real Season commit and SQLite item store.
+ * @param database Disposable database to reopen for resource persistence checks.
+ */
+void verify_resource_package(const char* database) {
     reset(kFixtures.front());
     g_resourceMode = true;
     std::array<state::DirectRecordReward, kResourceHashes.size()> rewards{};
@@ -297,7 +314,10 @@ void verify_resource_package() {
     check(state::commit_season_pass_reward(season)
               && store::account().profileItemCount == rewards.size(),
           "Season commits all resource stacks");
+    store::shutdown();
+    check(store::open(database, {}, {}, {}, {}), "reopen resource grant without defaults");
     const auto account = store::account();
+    check(account.profileItemCount == rewards.size(), "all resource stacks survive reopen");
     for (std::size_t index = 0; index < rewards.size(); ++index) {
         check(account.profileItems[index].definitionHash == kResourceHashes[index]
                   && account.profileItems[index].quantity == kResourceQuantity,
@@ -501,7 +521,7 @@ int main(int argc, char** argv) {
                       read_text(root + "/account_settings_defaults.sql")),
           "open disposable database");
     verify();
-    verify_resource_package();
+    verify_resource_package(argv[2]);
     reset(kFixtures.front());
     state::PendingRecordRewardGrant pending{};
     prepare(pending);

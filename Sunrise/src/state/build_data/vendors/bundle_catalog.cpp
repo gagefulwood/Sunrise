@@ -35,39 +35,53 @@ bool settled() noexcept {
     return g_settled;
 }
 
-/** @return True once the complete process-local bundle catalog has been published. */
+/** @return True when at least one supported offer has been published. */
 bool ready() noexcept {
     const std::lock_guard lock(g_mutex);
     return g_ready;
 }
 
 /**
- * Publish all supported effects together; incomplete extraction leaves the catalog unchanged.
- * @param definitions One installed definition per effect, in effect order.
- * @return False for missing, mismatched or out-of-bank definitions.
+ * Publish independently resolved offers; omitted wrappers remain unclaimable.
+ * @param definitions Supported installed offers in any order, possibly empty.
+ * @return False for duplicate, unsupported or out-of-bank definitions.
  */
 bool replace(std::span<const Definition> definitions) noexcept {
-    if (definitions.size() != kClaimEffects.size()) {
+    if (definitions.size() > kClaimEffects.size()) {
         return false;
     }
     for (std::size_t index = 0; index < definitions.size(); ++index) {
         const auto& definition = definitions[index];
-        if (definition.sourceHash != kClaimEffects[index].itemHash
+        const auto prior = definitions.first(index);
+        if (std::none_of(
+                kClaimEffects.begin(),
+                kClaimEffects.end(),
+                [&](const auto& effect) { return effect.itemHash == definition.sourceHash; })
+            || std::any_of(
+                prior.begin(),
+                prior.end(),
+                [&](const auto& held) { return held.sourceHash == definition.sourceHash; })
             || definition.claimRow >= unlocks::kAccountFlagCapacity || definition.rewards.count == 0
             || definition.rewards.count > definition.rewards.members.size()
             || !std::all_of(definition.rewards.members.begin(),
                             definition.rewards.members.begin()
                                 + static_cast<std::ptrdiff_t>(definition.rewards.count),
                             [](const auto& member) { return member.quantity > 0; })
+            || definition.requiredCount > definition.requiredRows.size()
             || !std::all_of(definition.requiredRows.begin(),
-                            definition.requiredRows.end(),
-                            [](auto row) { return row < unlocks::kAccountFlagCapacity; })) {
+                            definition.requiredRows.begin()
+                                + static_cast<std::ptrdiff_t>(definition.requiredCount),
+                            [&](auto row) {
+                                return row < unlocks::kAccountFlagCapacity
+                                       && row != definition.claimRow;
+                            })) {
             return false;
         }
     }
     const std::lock_guard lock(g_mutex);
+    g_definitions = {};
     std::copy(definitions.begin(), definitions.end(), g_definitions.begin());
-    g_ready = true;
+    g_ready = !definitions.empty();
     g_settled = true;
     return true;
 }
@@ -83,7 +97,7 @@ bool find(std::uint32_t sourceHash, Definition& definition) noexcept {
     const auto found = std::find_if(g_definitions.begin(),
                                     g_definitions.end(),
                                     [=](const auto& row) { return row.sourceHash == sourceHash; });
-    if (!g_ready || found == g_definitions.end()) {
+    if (sourceHash == 0 || !g_ready || found == g_definitions.end()) {
         return false;
     }
     definition = *found;

@@ -15,7 +15,7 @@ struct VendorBundleSource {
 };
 
 /**
- * Resolve a supported fixed armour sack and its purchase gates from installed content.
+ * Resolve a direct sack and its supported AND-only purchase gates from installed content.
  * @param source Native item, reward, vendor, flag-map and expression-pool blobs.
  * @param effect Explicit claim-on-success policy; never inferred from an arbitrary NOT flag.
  * @param saleIndex Sale ordinal within the vendor blob.

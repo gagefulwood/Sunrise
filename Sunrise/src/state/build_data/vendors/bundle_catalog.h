@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <optional>
 #include <span>
 
 #include "../../account/account_state.h"
@@ -8,8 +9,8 @@
 
 namespace sunrise::state::build_data::vendors::bundles {
 
-/** An armour upgrade fills the five armour equipment slots. */
-inline constexpr std::size_t kPieceCount = 5;
+/** Bound extracted AND-only prerequisites; larger expressions are refused, never truncated. */
+inline constexpr std::size_t kRequirementCapacity = 32;
 
 /** A reconstructed claim effect is explicit; a negated purchase flag alone is not a write rule. */
 struct ClaimEffect {
@@ -29,9 +30,10 @@ struct Definition {
     std::uint32_t sourceHash{};
     std::uint16_t vendorIndex{};
     std::uint16_t saleIndex{};
-    CharacterClass characterClass{};
+    std::optional<CharacterClass> characterClass{};
     std::uint16_t claimRow{};
-    std::array<std::uint16_t, kPieceCount> requiredRows{};
+    std::array<std::uint16_t, kRequirementCapacity> requiredRows{};
+    std::size_t requiredCount{};
     items::ItemBundle rewards{};
 };
 
