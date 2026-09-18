@@ -6,6 +6,7 @@
 #include <limits>
 #include <optional>
 
+#include "../../account/inventory/inventory_state.h"
 #include "../../build_data/items/details/definition.h"
 
 namespace sunrise::state::equipment::light {
@@ -27,12 +28,20 @@ inline constexpr std::int32_t kPowerPerLevel = 10;
 /** A powered item never scores below this floor whatever its level. */
 inline constexpr std::int32_t kMinimumItemPower = 750;
 
-/** Converts an authored item level to displayed Power without overflowing the wire integer. */
-[[nodiscard]] constexpr bool item_power(std::int32_t level, std::int32_t& output) noexcept {
-    if (level < 0 || level > (std::numeric_limits<std::int32_t>::max)() / kPowerPerLevel) {
+/**
+ * Converts normalized item levels to Power without overflowing the wire integer.
+ * @param level Whole item level; zero is unpowered.
+ * @param output Receives Power on success; unchanged on failure.
+ * @param fraction Tenths of a level, each worth one Power above the floor.
+ * @return False for invalid levels or Power outside the signed wire range.
+ */
+[[nodiscard]] constexpr bool
+item_power(std::int32_t level, std::int32_t& output, std::uint8_t fraction = 0) noexcept {
+    if (!account::inventory::valid_level(level, fraction)
+        || level > ((std::numeric_limits<std::int32_t>::max)() - fraction) / kPowerPerLevel) {
         return false;
     }
-    const std::int32_t power = kPowerPerLevel * level;
+    const std::int32_t power = kPowerPerLevel * level + fraction;
     output = level == 0 ? 0 : (power < kMinimumItemPower ? kMinimumItemPower : power);
     return true;
 }

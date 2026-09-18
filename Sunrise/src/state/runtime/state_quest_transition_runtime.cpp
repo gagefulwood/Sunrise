@@ -191,7 +191,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     granted.instanceSoid = successorSoid;
     granted.definitionHash = successor.definitionHash;
     granted.quantity = 1;
-    granted.level = acquisition_level(character);
+    granted.level = acquisition_level(character, granted.levelFraction);
     granted.mutationSerial = static_cast<std::int32_t>(changed.nextInventorySerial++);
     // Replace in one candidate so a full bucket does not need a spare grant row.
     changed.inventory.values[location.index] = granted;

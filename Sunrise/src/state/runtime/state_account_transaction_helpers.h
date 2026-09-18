@@ -210,7 +210,8 @@ find_resolved_position(const middleware::datagen::family4::loadout::ResolvedLoad
 [[nodiscard]] bool next_profile_item_instance_soid(const AccountState& account,
                                                    std::uint64_t& output) noexcept;
 [[nodiscard]] bool account_owns_soid(const AccountState& account, std::uint64_t soid) noexcept;
-[[nodiscard]] std::int32_t acquisition_level(const CharacterState& character) noexcept;
+[[nodiscard]] std::int32_t acquisition_level(const CharacterState& character,
+                                             std::uint8_t& fraction) noexcept;
 [[nodiscard]] bool stage_item_dismantle(const AccountState& account,
                                         std::size_t characterIndex,
                                         std::uint64_t instanceSoid,

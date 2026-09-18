@@ -276,9 +276,9 @@ finalize_equipment_transition(const AccountState& account,
 [[nodiscard]] static bool same_item(const authored_inventory::Item& left,
                                     const authored_inventory::Item& right) noexcept {
     return left.instanceSoid == right.instanceSoid && left.definitionHash == right.definitionHash
-           && left.level == right.level && left.quantity == right.quantity
-           && left.flags == right.flags && left.seen == right.seen
-           && left.sockets.policy == right.sockets.policy
+           && left.level == right.level && left.levelFraction == right.levelFraction
+           && left.quantity == right.quantity && left.flags == right.flags
+           && left.seen == right.seen && left.sockets.policy == right.sockets.policy
            && left.sockets.plugCount == right.sockets.plugCount
            && left.sockets.plugs == right.sockets.plugs
            && left.movementAbilityEntry == right.movementAbilityEntry

@@ -73,6 +73,7 @@ void mix_item(std::uint64_t& hash, const account::inventory::Item& item) noexcep
     // SOIDs, quantity, gates and secrets stay outside build identity.
     mix_value(hash, item.definitionHash);
     mix_value(hash, static_cast<std::uint32_t>(item.level));
+    mix_byte(hash, item.levelFraction);
     mix_sockets(hash, item.sockets);
     // Mixed for every item because the ability bucket rows are keyed by these, so a changed pick
     // must rebuild. They live on the item, so each owned subclass keeps its own picks.

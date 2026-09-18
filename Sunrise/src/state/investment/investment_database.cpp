@@ -118,9 +118,13 @@ bool open(std::string_view path,
                 && !settingsSchema.empty() && !settingsDefaults.empty()
                 && execute(preferenceSchema.c_str()) && execute(preferenceDefaults.c_str())
                 && transaction.commit();
+        if (ready) {
+            Statement query("PRAGMA user_version");
+            ready = query.step() == SQLITE_ROW && query.column(0, version);
+        }
     } else if (ready) {
-        // Version 3 adds character-owned objective counters.
-        constexpr int kSchemaVersion = 3;
+        // Version 4 preserves fractional item levels.
+        constexpr int kSchemaVersion = 4;
         constexpr int kApplicationId = 1397902921;
         int application = 0;
         Statement query("PRAGMA application_id");
@@ -152,6 +156,18 @@ bool open(std::string_view path,
                            "value INTEGER NOT NULL CHECK (value BETWEEN 0 AND 2147483647),"
                            "PRIMARY KEY (character_soid,slot)) STRICT;")
                 && execute("PRAGMA user_version=3") && transaction.commit();
+        if (ready) {
+            version = 3;
+        }
+    }
+    if (ready && version == 3) {
+        Transaction transaction;
+        // Bootstrap SQL and old saves start with whole levels and receive the same zero default.
+        ready = transaction.ready()
+                && execute("ALTER TABLE items ADD COLUMN level_fraction INTEGER NOT NULL DEFAULT 0 "
+                           "CHECK(level_fraction BETWEEN 0 AND 9 AND "
+                           "(level > 0 OR level_fraction = 0));")
+                && execute("PRAGMA user_version=4") && transaction.commit();
     }
     if (!ready) {
         shutdown();

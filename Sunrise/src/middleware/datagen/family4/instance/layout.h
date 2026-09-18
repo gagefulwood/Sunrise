@@ -41,8 +41,6 @@ inline constexpr std::uint32_t kInitialDerivedSocketMask = 0;
 inline constexpr std::int32_t kInitialInstanceProgress = 0;
 /** 0 is the lowest level accepted by the native signed item-level field. */
 inline constexpr std::int32_t kMinimumItemLevel = 0;
-/** 0 is the neutral generated level-curve selector. */
-inline constexpr std::uint16_t kInitialLevelCurveX = 0;
 /** Generated item instances use the first native level-cap row. */
 inline constexpr std::uint16_t kInitialLevelCapRow = 0;
 /** New item instances carry no optional creation-request entries. */
@@ -66,10 +64,10 @@ inline constexpr std::size_t kObjectSize = 416;
 
 #pragma pack(push, 1)
 
-/** Item level and the 2 native curve selectors that bound it. */
+/** Whole level, signed fractional-curve input, and quality-cap selector. */
 struct LevelState {
     std::int32_t level{};
-    std::uint16_t curveX{};
+    std::int16_t fraction{};
     std::uint16_t capRow{};
 };
 

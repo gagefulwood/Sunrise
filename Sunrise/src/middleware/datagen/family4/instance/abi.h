@@ -11,7 +11,7 @@ namespace sunrise::middleware::datagen::family4::instance::abi {
 inline constexpr std::size_t kInstanceSoidOffset = 0;
 /** Item level begins after the 8-byte instance SOID. */
 inline constexpr std::size_t kLevelOffset = 8;
-/** The level-curve selector begins at native byte 12. */
+/** The signed fractional-level curve input begins at native byte 12. */
 inline constexpr std::size_t kLevelCurveOffset = 12;
 /** The level-cap row begins at native byte 14. */
 inline constexpr std::size_t kLevelCapRowOffset = 14;
@@ -51,7 +51,7 @@ inline constexpr std::size_t kTailValuesOffset = 384;
 static_assert(std::is_standard_layout_v<layout::Object>);
 static_assert(offsetof(layout::Object, instanceSoid) == kInstanceSoidOffset);
 static_assert(offsetof(layout::Object, level) == kLevelOffset);
-static_assert(offsetof(layout::Object, level) + offsetof(layout::LevelState, curveX)
+static_assert(offsetof(layout::Object, level) + offsetof(layout::LevelState, fraction)
               == kLevelCurveOffset);
 static_assert(offsetof(layout::Object, level) + offsetof(layout::LevelState, capRow)
               == kLevelCapRowOffset);

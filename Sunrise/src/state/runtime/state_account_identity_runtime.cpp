@@ -110,16 +110,29 @@ constexpr std::uint64_t kFirstGeneratedItemSoid = 0x4000000000000001ULL;
     return false;
 }
 
-/** Uses the character's strongest existing item as the neutral local Collections pull level. */
-[[nodiscard]] std::int32_t acquisition_level(const CharacterState& character) noexcept {
+/**
+ * Preserves the local Collections policy of copying the strongest existing item level.
+ * @param character Valid character whose equipment and inventory supply the level.
+ * @param fraction Receives the strongest item's normalized fractional level, or zero.
+ * @return Whole level of that item, or zero for an empty character.
+ */
+[[nodiscard]] std::int32_t acquisition_level(const CharacterState& character,
+                                             std::uint8_t& fraction) noexcept {
     std::int32_t level = 0;
+    fraction = 0;
+    const auto consider = [&](const authored_inventory::Item& item) {
+        if (item.level > level || (item.level == level && item.levelFraction > fraction)) {
+            level = item.level;
+            fraction = item.levelFraction;
+        }
+    };
     for (const auto& item : character.equipment.slots) {
         if (item.has_value()) {
-            level = (std::max)(level, item->level);
+            consider(*item);
         }
     }
     for (std::size_t index = 0; index < character.inventory.count; ++index) {
-        level = (std::max)(level, character.inventory.values[index].level);
+        consider(character.inventory.values[index]);
     }
     return level;
 }

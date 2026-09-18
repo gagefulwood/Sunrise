@@ -118,7 +118,6 @@ bool resolve_profile_item_instance(const state::account::inventory::ProfileItem&
     candidate.bounds.socketEntryListCount = static_cast<std::uint32_t>(socketEntryListCount);
     candidate.baseDefinitionIndex = item.definitionIndex;
     candidate.level = family4_datagen::instance::layout::kMinimumItemLevel;
-    candidate.curveSelector = family4_datagen::instance::layout::kInitialLevelCurveX;
     candidate.capSelector = family4_datagen::instance::layout::kInitialLevelCapRow;
     candidate.socketEntryListIndex = socketList.definitionIndex;
     candidate.socketEntryCount = 0;

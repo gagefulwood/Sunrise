@@ -57,8 +57,8 @@ struct ResolvedInstance {
     DefinitionBounds bounds{};
     std::uint16_t baseDefinitionIndex{layout::kEmptyDefinitionIndex};
     std::int32_t level{};
-    /** Runtime-scored level curve written into the same native instance prefix. */
-    std::uint16_t curveSelector{layout::kInitialLevelCurveX};
+    /** Normalized tenths of a level, encoded as the native fractional-curve input. */
+    std::uint8_t levelFraction{};
     /** Runtime-scored level cap written into the same native instance prefix. */
     std::uint16_t capSelector{layout::kInitialLevelCapRow};
     std::uint16_t socketEntryListIndex{layout::kEmptyDefinitionIndex};

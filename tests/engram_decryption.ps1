@@ -10,6 +10,7 @@ $engramSource = Join-Path $engramRoot 'Sunrise/src'
 $engramSqlite = Join-Path $engramRoot 'Sunrise/vendor/sqlite'
 $engramSources = @(
     'tests/engram_decryption_tests.cpp',
+    'Sunrise/src/middleware/datagen/family4/instance/instance_encoder.cpp',
     'Sunrise/src/state/runtime/state_account_acquisition_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_identity_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_equipment_runtime.cpp',

@@ -92,8 +92,9 @@ bool valid(const Sockets& sockets) noexcept {
 
 /** Checks one whole authored item without reading installed build data. */
 bool valid(const Item& item) noexcept {
-    return item.instanceSoid != 0 && item.definitionHash != kNoDefinitionHash && item.level >= 0
-           && item.quantity > 0 && item.mutationSerial >= 0 && valid(item.sockets);
+    return item.instanceSoid != 0 && item.definitionHash != kNoDefinitionHash
+           && valid_level(item.level, item.levelFraction) && item.quantity > 0
+           && item.mutationSerial >= 0 && valid(item.sockets);
 }
 
 /** Checks every item present in the fixed semantic equipment array. */

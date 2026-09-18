@@ -284,7 +284,7 @@ void report_socket_plug(std::string_view stage,
     authored_inventory::Item* changed = character_item_at(after, location);
     if (changed == nullptr || changed->instanceSoid != target->instanceSoid
         || changed->definitionHash != target->definitionHash || changed->level != target->level
-        || changed->quantity != target->quantity
+        || changed->levelFraction != target->levelFraction || changed->quantity != target->quantity
         || changed->mutationSerial != target->mutationSerial) {
         return fail("target_copy");
     }

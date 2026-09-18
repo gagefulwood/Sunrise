@@ -1,13 +1,18 @@
+#include <Windows.h>
+
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <string>
 
 #include "core/logging/log.h"
 #include "middleware/datagen/definitions.h"
+#include "middleware/datagen/family4/instance/abi.h"
 #include "middleware/web_service/messages/opcode2002.h"
 #include "server/bap/encrypted/queuez/queuez_state_validation.h"
+#include "state/equipment/light/definition.h"
 #include "state/investment/store_internal.h"
 #include "state/progression/season_pass_reward_catalog.h"
 #include "state/runtime/state_account_transaction_helpers.h"
@@ -497,7 +502,149 @@ bool resolve(const state::AccountState& account,
 }
 } // namespace sunrise::middleware::datagen::family4::loadout
 
-/** Runs exclusively against a new in-memory database and synthetic content adapters. */
+namespace {
+
+/** Checks exact Power, native instance bytes, and fractional stale-state rejection. */
+void verify_fractional_level() {
+    namespace instance = sunrise::middleware::datagen::family4::instance;
+    namespace inventory = state::account::inventory;
+    namespace light = state::equipment::light;
+    // A 100.3 level represents 1003 Power in the linear part of the item curve.
+    constexpr std::int32_t kWhole = 100;
+    constexpr std::uint8_t kFraction = 3;
+    constexpr std::int32_t kPower = 1003;
+    std::int32_t power = 0;
+    check(light::item_power(kWhole, power, kFraction) && power == kPower, "exact Power");
+    check(light::item_power(kWhole, power) && power == kWhole * light::kPowerPerLevel,
+          "old whole-level Power");
+    check(light::item_power(1, power, kFraction) && power == light::kMinimumItemPower,
+          "fraction preserves Power floor");
+    check(light::item_power(0, power) && power == 0, "zero remains unpowered");
+    check(!light::item_power(0, power, kFraction) && power == 0, "fraction needs whole level");
+    check(!light::item_power(kWhole, power, inventory::kMaximumLevelFraction + 1) && power == 0,
+          "unnormalized fraction refused");
+    check(!light::item_power((std::numeric_limits<std::int32_t>::max)(), power, kFraction)
+              && power == 0,
+          "overflow leaves output unchanged");
+
+    instance::ResolvedInstance resolved{};
+    resolved.instanceSoid = kSource;
+    resolved.bounds = {1, 1};
+    resolved.baseDefinitionIndex = 0;
+    resolved.level = kWhole;
+    resolved.levelFraction = kFraction;
+    resolved.socketEntryListIndex = 0;
+    resolved.socketEntryContentsResolved = true;
+    resolved.ordinarySockets.state = instance::OrdinarySocketBlockState::absent;
+    std::array<std::byte, instance::layout::kObjectSize> bytes{};
+    check(instance::encode(resolved, bytes), "fractional instance encode");
+    instance::layout::Object object{};
+    std::memcpy(&object, bytes.data(), sizeof object);
+    check(object.level.level == kWhole && object.level.fraction == kFraction
+              && object.level.capRow == 0,
+          "whole and fraction encoded without changing quality cap");
+    const auto unchanged = bytes;
+    resolved.levelFraction = inventory::kMaximumLevelFraction + 1;
+    check(!instance::encode(resolved, bytes) && bytes == unchanged,
+          "invalid fraction leaves wire output unchanged");
+
+    for (const auto hash : {pass::kOwnedLegendaryEngramHash, pass::kOwnedPrimeEngramHash}) {
+        reset_fixture();
+        auto account = store::account();
+        auto& source = account.characters[0].inventory.values[0];
+        source.definitionHash = hash;
+        source.level = kWhole;
+        source.levelFraction = kFraction;
+        check(store::write_account(account), "save fractional source");
+        state::PendingItemAcquisition pending{};
+        check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending),
+              "prepare fractional decryption");
+        check(pending.afterCharacter.inventory.values[0].level == kWhole
+                  && pending.afterCharacter.inventory.values[0].levelFraction == kFraction,
+              "decryption preserves exact source level");
+        auto tampered = pending;
+        ++tampered.afterCharacter.inventory.values[0].levelFraction;
+        check(!state::commit_item_acquisition(tampered), "fraction-only reward tampering refused");
+        check(state::commit_item_acquisition(pending), "fractional decryption commits");
+        state::AccountState saved{};
+        check(store::read_account(saved)
+                  && saved.characters[0].inventory.values[0].levelFraction == kFraction,
+              "fractional reward persisted");
+    }
+
+    reset_fixture();
+    auto account = store::account();
+    auto& character = account.characters[0];
+    character.inventory.values[0].levelFraction = kFraction;
+    auto equipped = character.inventory.values[0];
+    ++equipped.instanceSoid;
+    ++equipped.levelFraction;
+    character.equipment.slots[0] = equipped;
+    std::uint8_t fraction = 0;
+    check(state::runtime::detail::acquisition_level(character, fraction) == kLevel
+              && fraction == equipped.levelFraction,
+          "equal whole levels compare fractional remainders");
+    check(store::write_account(account), "save fractional equipment and inventory");
+    state::PendingItemAcquisition pending{};
+    check(state::prepare_engram_decryption(kSource, kWeaponIndex, pending), "prepare stale test");
+    ++character.inventory.values[0].levelFraction;
+    check(store::write_account(account), "change only source fraction");
+    check(!state::commit_item_acquisition(pending), "fraction-only stale source refused");
+}
+
+/**
+ * Migrates only a newly created temporary database, then closes and reopens fractional items.
+ * @param directory Repository SQL resources.
+ */
+void verify_level_migration(const std::string& directory) {
+    std::array<char, MAX_PATH> temp{}, filename{};
+    const auto length = GetTempPathA(static_cast<DWORD>(temp.size()), temp.data());
+    check(length != 0 && length < temp.size(), "temporary directory");
+    check(GetTempFileNameA(temp.data(), "srp", 0, filename.data()) != 0, "unique test database");
+    sqlite3* old = nullptr;
+    check(sqlite3_open(filename.data(), &old) == SQLITE_OK, "open bootstrap database");
+    const auto bootstrap = read_text(directory + "/investment_schema.sql")
+                           + read_text(directory + "/investment_defaults.sql")
+                           + read_text(directory + "/account_settings_schema.sql")
+                           + read_text(directory + "/account_settings_defaults.sql");
+    check(sqlite3_exec(old, bootstrap.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK,
+          "create version-three save with real defaults");
+    check(sqlite3_close(old) == SQLITE_OK, "close version-three save");
+    check(store::open(filename.data(), {}, {}, {}, {}), "migrate old save");
+    auto before = store::account();
+    check(before.characterCount != 0 && before.characters[0].equipment.slots[0].has_value(),
+          "old save still loads");
+    for (std::size_t index = 0; index < before.characterCount; ++index) {
+        const auto& character = before.characters[index];
+        for (const auto& item : character.equipment.slots) {
+            check(!item || item->levelFraction == 0, "old equipped fraction defaults to zero");
+        }
+        for (std::size_t row = 0; row < character.inventory.count; ++row) {
+            check(character.inventory.values[row].levelFraction == 0,
+                  "old inventory fraction defaults to zero");
+        }
+    }
+    before.characters[0].equipment.slots[0]->levelFraction = 3;
+    check(store::write_account(before), "save fractional equipment");
+    store::shutdown();
+    check(store::open(filename.data(), {}, {}, {}, {}), "reopen migrated save");
+    const auto after = store::account();
+    check(after.characterCount == before.characterCount
+              && after.characters[0].equipment.slots[0].has_value()
+              && after.characters[0].equipment.slots[0]->instanceSoid
+                     == before.characters[0].equipment.slots[0]->instanceSoid
+              && after.characters[0].equipment.slots[0]->level
+                     == before.characters[0].equipment.slots[0]->level
+              && after.characters[0].equipment.slots[0]->levelFraction
+                     == before.characters[0].equipment.slots[0]->levelFraction,
+          "fractional equipment survives close and reopen");
+    store::shutdown();
+    check(DeleteFileA(filename.data()) != 0, "remove only temporary test database");
+}
+
+} // namespace
+
+/** Runs exclusively against disposable databases and synthetic content adapters. */
 int main(int argc, char** argv) {
     check(argc == 2, "repository SQL directory argument");
     const std::string directory = argv[1];
@@ -512,7 +659,9 @@ int main(int argc, char** argv) {
     verify_prime_credit();
     verify_inventory_capacity();
     verify_manifest();
+    verify_fractional_level();
     store::shutdown();
+    verify_level_migration(directory);
     std::puts("PASS: owned-engram request, atomic exchange, ownership, replay, rollback and "
               "resident staging");
 }

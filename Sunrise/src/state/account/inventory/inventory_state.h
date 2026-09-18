@@ -110,6 +110,8 @@ struct Item {
     std::uint64_t instanceSoid{};
     std::uint32_t definitionHash{};
     std::int32_t level{};
+    /** Normalized tenths of a level; the whole level remains in level. */
+    std::uint8_t levelFraction{};
     std::int32_t quantity{};
     /**
      * Rising per-character generation assigned whenever this item changes inventory rows. The
@@ -133,6 +135,14 @@ struct Item {
     /** The client has dismissed this item's new-item marker. */
     bool seen{};
 };
+
+/** The level adjustment curve maps inputs 0..9 to fractions 0.0..0.9. */
+inline constexpr std::uint16_t kMaximumLevelFraction = 9;
+
+/** Zero level is unpowered; positive levels use a normalized fractional remainder. */
+[[nodiscard]] constexpr bool valid_level(std::int32_t level, std::uint16_t fraction) noexcept {
+    return level >= 0 && fraction <= kMaximumLevelFraction && (level != 0 || fraction == 0);
+}
 
 /** Ordered unequipped items placed into their native character-inventory bucket ranges. */
 struct CharacterItems {

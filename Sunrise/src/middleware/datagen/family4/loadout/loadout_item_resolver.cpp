@@ -188,7 +188,7 @@ bool resolve_item(const authored_inventory::Item& authored,
         static_cast<std::uint32_t>(socketEntryListCount);
     candidate.item.instance.baseDefinitionIndex = itemDefinition.definitionIndex;
     candidate.item.instance.level = authored.level;
-    candidate.item.instance.curveSelector = instance::layout::kInitialLevelCurveX;
+    candidate.item.instance.levelFraction = authored.levelFraction;
     candidate.item.instance.capSelector = instance::layout::kInitialLevelCapRow;
     candidate.item.instance.socketEntryListIndex = socketList.definitionIndex;
     candidate.item.instance.socketEntryCount = socketList.entryCount;

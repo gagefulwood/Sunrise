@@ -197,9 +197,12 @@ using Quest = build_data::items::QuestInitialization;
     acquired.instanceSoid = instanceSoid;
     acquired.definitionHash = definitionHash;
     // Decryption preserves the source level; it does not apply Collections' strongest-item policy.
-    acquired.level = source.consumedInstanceSoid == 0
-                         ? acquisition_level(before)
-                         : before.inventory.values[inventoryIndex].level;
+    if (source.consumedInstanceSoid == 0) {
+        acquired.level = acquisition_level(before, acquired.levelFraction);
+    } else {
+        acquired.level = before.inventory.values[inventoryIndex].level;
+        acquired.levelFraction = before.inventory.values[inventoryIndex].levelFraction;
+    }
     acquired.quantity = 1;
     acquired.mutationSerial = static_cast<std::int32_t>(after.nextInventorySerial++);
     acquired.sockets.policy = authored_inventory::SocketPolicy::nativeDefaults;
@@ -422,12 +425,14 @@ bool prepare_direct_item_bundle(std::uint32_t sourceDefinitionHash,
     }
 
     CharacterState after = before;
-    const std::int32_t level = acquisition_level(before);
+    std::uint8_t fraction = 0;
+    const std::int32_t level = acquisition_level(before, fraction);
     for (std::size_t index = 0; index < itemDefinitionIndices.size(); ++index) {
         authored_inventory::Item granted{};
         granted.instanceSoid = firstSoid + index;
         granted.definitionHash = hashes[index];
         granted.level = level;
+        granted.levelFraction = fraction;
         granted.quantity = 1;
         granted.mutationSerial = static_cast<std::int32_t>(after.nextInventorySerial++);
         after.inventory.values[after.inventory.count++] = granted;
@@ -636,7 +641,8 @@ valid_item_acquisition_source(const PendingItemAcquisition& mutation) noexcept {
     }
 
     CharacterState canonical = mutation.beforeCharacter;
-    const std::int32_t level = acquisition_level(canonical);
+    std::uint8_t fraction = 0;
+    const std::int32_t level = acquisition_level(canonical, fraction);
     for (std::size_t index = 0; index < mutation.itemCount; ++index) {
         build_data::items::Definition definition{};
         item_details::Definition detail{};
@@ -656,6 +662,7 @@ valid_item_acquisition_source(const PendingItemAcquisition& mutation) noexcept {
         granted.instanceSoid = firstSoid + index;
         granted.definitionHash = package.items[index];
         granted.level = level;
+        granted.levelFraction = fraction;
         granted.quantity = 1;
         granted.mutationSerial = static_cast<std::int32_t>(canonical.nextInventorySerial++);
         canonical.inventory.values[canonical.inventory.count++] = granted;

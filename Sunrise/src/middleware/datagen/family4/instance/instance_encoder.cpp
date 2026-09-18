@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 
+#include "../../../../state/account/inventory/inventory_state.h"
 #include "abi.h"
 #include "layout.h"
 
@@ -90,8 +91,8 @@ namespace {
  * @return True when the record can be encoded without an unresolved native lookup.
  */
 [[nodiscard]] bool valid(const ResolvedInstance& input) noexcept {
-    return input.instanceSoid != 0 && input.level >= layout::kMinimumItemLevel
-           && input.curveSelector == layout::kInitialLevelCurveX
+    return input.instanceSoid != 0
+           && state::account::inventory::valid_level(input.level, input.levelFraction)
            && input.capSelector == layout::kInitialLevelCapRow
            && valid_item_definition(input.baseDefinitionIndex, input.bounds.itemDefinitionCount)
            && valid_ordinary_sockets(input.ordinarySockets, input.bounds.itemDefinitionCount)
@@ -134,7 +135,7 @@ bool encode(const ResolvedInstance& input, std::span<std::byte> output) noexcept
     initialize_empty_fields(object);
     object.instanceSoid = input.instanceSoid;
     object.level.level = input.level;
-    object.level.curveX = input.curveSelector;
+    object.level.fraction = input.levelFraction;
     object.level.capRow = input.capSelector;
     object.baseDefinitionIndex = input.baseDefinitionIndex;
     object.ordinarySockets.gateMask = layout::kAllSocketBits;

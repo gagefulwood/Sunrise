@@ -58,7 +58,7 @@ resolve_item(const authored::Item& item, std::size_t& nativeSlot, ItemScore& ite
     nativeSlot = static_cast<std::size_t>(resolvedSlot);
     // The "Emotes" collection item's real content contributes no light either way.
     std::int32_t power = 0;
-    if (detail.equipmentSlot.has_value() && !item_power(item.level, power)) {
+    if (detail.equipmentSlot.has_value() && !item_power(item.level, power, item.levelFraction)) {
         return false;
     }
     itemScore = ItemScore{definition.definitionIndex, power};
