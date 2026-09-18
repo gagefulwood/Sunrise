@@ -31,7 +31,7 @@ namespace sunrise::state::build_data::cache::records {
 /** These 8 ASCII bytes mark a Sunrise build-data file. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', 'E', 'B'};
 /** Bump when stored layouts or extracted values change; other versions are rebuilt. */
-inline constexpr std::uint32_t kCacheFormatVersion = 67;
+inline constexpr std::uint32_t kCacheFormatVersion = 68;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -227,6 +227,8 @@ struct ItemDetailRecord {
     std::array<std::uint8_t, items::details::kRenderOverrideCapacity> overrideStages{};
     std::array<std::int8_t, items::details::kRenderOverrideCapacity> overrideKeys{};
     std::array<std::uint16_t, items::details::kRenderOverrideCapacity> overrideValues{};
+    /** Zero denotes no declared quality cap; other values are positive item levels. */
+    float levelCap{};
 };
 
 /** Disk form of one exact item/lane-to-deduplicated-pool rule. */
@@ -663,7 +665,7 @@ static_assert(sizeof(MaterialRequirementSetRecord)
                            * sizeof(MaterialRequirementRecord));
 static_assert(sizeof(ItemDetailRecord)
               == 7 * sizeof(std::uint16_t) + 8 * sizeof(std::uint8_t) + sizeof(std::int32_t)
-                     + sizeof(std::uint32_t)
+                     + sizeof(std::uint32_t) + sizeof(float)
                      + 2 * items::details::kInitialPlugCapacity * sizeof(std::uint16_t)
                      + items::details::kStatCapacity * (sizeof(std::uint8_t) + sizeof(std::int32_t))
                      + items::details::kSandboxPerkCapacity * sizeof(std::uint16_t)

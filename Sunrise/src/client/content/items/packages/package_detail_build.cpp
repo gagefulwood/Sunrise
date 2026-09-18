@@ -220,7 +220,7 @@ bool build_detail(const DetailSource& source,
     }
     item.definitionHash = indexRow.definitionHash;
     detail = to_detail(item);
-    return true;
+    return tables::items::read_level_cap(*source.definition, source.qualityCaps, detail.levelCap);
 }
 
 /** Reads the stat rows the installed investment constants blob names. */

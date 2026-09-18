@@ -51,6 +51,7 @@ struct DetailSource {
     std::span<const std::byte> table{};
     tables::Array array{};
     std::vector<std::byte>* definition{};
+    std::span<const std::byte> qualityCaps{};
 };
 
 /** The container name is not always unique, so every match is a candidate. */
@@ -119,6 +120,8 @@ struct Storage {
     std::vector<std::byte> questValueMap{};
     /** Shared reusable/randomized plug-set table read from investment-root slot 51. */
     std::vector<std::byte> plugSetTable{};
+    /** Shared quality-cap rows used by the item-detail pass. */
+    std::vector<std::byte> qualityCapTable{};
     /** Dense item-indexed catalyst completion expressions for this package pass. */
     std::vector<state::build_data::items::catalysts::CompletionCondition>
         catalystCompletionConditions{};

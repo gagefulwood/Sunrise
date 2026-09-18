@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 #include "definition_index_table.h"
@@ -21,6 +22,14 @@ constexpr std::size_t kTierOffset = 186;
 constexpr std::size_t kEquipmentBlockOffset = 16;
 /** The equipment block stores its signed slot id here. */
 constexpr std::size_t kEquipmentSlotOffset = 24;
+/** The quality block is self-relative from item byte 72; zero means absent. */
+constexpr std::size_t kQualityBlockOffset = 72;
+/** Quality versions are signed 16-bit cap-table indices in this array. */
+constexpr std::size_t kQualityVersionsOffset = 96;
+/** A quality-cap row contains a hash followed by one float level. */
+constexpr std::size_t kQualityCapStride = 8;
+/** The float level follows the cap row's 32-bit hash. */
+constexpr std::size_t kQualityCapLevelOffset = 4;
 /** The socket entry list block is self-relative from this offset, zero when absent. */
 constexpr std::size_t kSocketEntryListBlockOffset = 128;
 /** A present block declares 12 bytes. A shorter tail is not a block. */
@@ -320,6 +329,62 @@ void read_stats(std::span<const std::byte> definition, Row& row) noexcept {
 }
 
 } // namespace
+
+/**
+ * Resolves the first quality version without treating malformed data as an absent cap.
+ * @param definition Whole item definition bytes.
+ * @param capTable Shared quality-cap table bytes.
+ * @param output Receives the level cap or zero when absent; unchanged on failure.
+ * @return True when the block is absent or its cap resolves to a positive finite level.
+ */
+bool read_level_cap(std::span<const std::byte> definition,
+                    std::span<const std::byte> capTable,
+                    float& output) noexcept {
+    std::int64_t relative = 0;
+    if (!read(definition, kQualityBlockOffset, relative)) {
+        return false;
+    }
+    if (relative == 0) {
+        output = 0;
+        return true;
+    }
+    if (relative < -static_cast<std::int64_t>(kQualityBlockOffset)
+        || (relative > 0
+            && static_cast<std::uint64_t>(relative) > definition.size() - kQualityBlockOffset)) {
+        return false;
+    }
+    const auto block =
+        static_cast<std::size_t>(static_cast<std::int64_t>(kQualityBlockOffset) + relative);
+    if (definition.size() - block < kQualityVersionsOffset) {
+        return false;
+    }
+    Array versions{};
+    if (!find_optional_array_at(definition, block + kQualityVersionsOffset, versions)
+        || versions.dataOffset > definition.size()
+        || versions.count > (definition.size() - versions.dataOffset) / sizeof(std::int16_t)) {
+        return false;
+    }
+    if (versions.count == 0) {
+        output = 0;
+        return true;
+    }
+    std::int16_t capIndex = 0;
+    Array caps{};
+    float cap = 0;
+    if (!read(definition, versions.dataOffset, capIndex) || capIndex < 0
+        || !find_array_at(capTable, kTableArrayDescriptor, caps)
+        || static_cast<std::uint64_t>(capIndex) >= caps.count || caps.dataOffset > capTable.size()
+        || caps.count > (capTable.size() - caps.dataOffset) / kQualityCapStride
+        || !read(capTable,
+                 caps.dataOffset + static_cast<std::size_t>(capIndex) * kQualityCapStride
+                     + kQualityCapLevelOffset,
+                 cap)
+        || !std::isfinite(cap) || cap <= 0) {
+        return false;
+    }
+    output = cap;
+    return true;
+}
 
 /** Reads the fixed fields of one item definition blob. */
 bool read_definition(std::span<const std::byte> definition, Row& row) noexcept {

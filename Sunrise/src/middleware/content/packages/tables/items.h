@@ -7,6 +7,9 @@
 
 namespace sunrise::middleware::content::packages::tables::items {
 
+/** Investment-root slot 67 holds the item quality caps. */
+inline constexpr std::size_t kQualityCapTableSlot = 67;
+
 /** Ordinary socket lanes an item definition can declare. */
 inline constexpr std::size_t kSocketCapacity = 12;
 /** All bits set marks a socket lane with no initial plug. */
@@ -94,6 +97,17 @@ void read_appearance(std::span<const std::byte> definition, Row& row) noexcept;
  * @return True when the blob is long enough to carry the fixed fields.
  */
 [[nodiscard]] bool read_definition(std::span<const std::byte> definition, Row& row) noexcept;
+
+/**
+ * Reads the first quality version, matching the supported item-instance selector.
+ * @param definition Whole item definition bytes.
+ * @param capTable Shared quality-cap table bytes.
+ * @param output Receives the level cap, or zero when absent; unchanged on failure.
+ * @return False for malformed blocks, indices or cap values.
+ */
+[[nodiscard]] bool read_level_cap(std::span<const std::byte> definition,
+                                  std::span<const std::byte> capTable,
+                                  float& output) noexcept;
 
 /** Visitor called for each native item-definition index an ordinary socket list names. */
 using AllowedPlugVisitor = bool (*)(void* context, std::uint32_t itemDefinitionIndex) noexcept;

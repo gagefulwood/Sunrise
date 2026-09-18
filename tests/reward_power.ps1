@@ -1,3 +1,5 @@
+param([string]$ItemDefinition, [string]$QualityCaps, [string]$ExpectedCap)
+
 $ErrorActionPreference = 'Stop'
 $rewardRoot = Split-Path $PSScriptRoot -Parent
 $rewardBuild = Join-Path $rewardRoot 'build/reward-power-tests'
@@ -9,8 +11,26 @@ $rewardVcVars = Join-Path $rewardVs 'VC/Auxiliary/Build/vcvars64.bat'
 $rewardSource = Join-Path $rewardRoot 'Sunrise/src'
 Push-Location $rewardBuild
 try {
-    & cmd.exe /d /s /c "`"$rewardVcVars`" >nul && cl /nologo /std:c++20 /EHsc /W4 /WX /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I`"$rewardSource`" `"$rewardRoot/tests/reward_power_tests.cpp`" `"$rewardSource/state/equipment/light/calculation/equipment_light_calculation.cpp`" /Fereward_power_tests.exe"
+    $rewardSources = @(
+        "$rewardRoot/tests/reward_power_tests.cpp",
+        "$rewardSource/state/equipment/light/calculation/equipment_light_calculation.cpp",
+        "$rewardSource/state/equipment/light/resolution/configured_equipment_light_resolver.cpp",
+        "$rewardSource/state/account/inventory/inventory_state.cpp",
+        "$rewardSource/state/build_data/cache/records/cache_record_codec.cpp",
+        "$rewardSource/middleware/content/packages/tables/item_definition_reader.cpp",
+        "$rewardSource/middleware/content/packages/tables/item_appearance_reader.cpp",
+        "$rewardSource/middleware/content/packages/tables/definition_index_table.cpp"
+    ) | ForEach-Object { '"' + $_ + '"' }
+    $rewardCommand = "`"$rewardVcVars`" >nul && cl /nologo /std:c++20 /EHsc /Gy /W4 /WX /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I`"$rewardSource`" " + ($rewardSources -join ' ') + ' /Fereward_power_tests.exe /link /OPT:REF /STACK:8388608'
+    & cmd.exe /d /s /c $rewardCommand
     if ($LASTEXITCODE -ne 0) { throw 'Reward Power test build failed.' }
-    & (Join-Path $rewardBuild 'reward_power_tests.exe')
+    $rewardArguments = @()
+    if ($ItemDefinition -or $QualityCaps -or $ExpectedCap) {
+        if (-not ($ItemDefinition -and $QualityCaps -and $ExpectedCap)) {
+            throw 'Provide ItemDefinition, QualityCaps and ExpectedCap together.'
+        }
+        $rewardArguments = @($ItemDefinition, $QualityCaps, $ExpectedCap)
+    }
+    & (Join-Path $rewardBuild 'reward_power_tests.exe') @rewardArguments
     if ($LASTEXITCODE -ne 0) { throw 'Reward Power checks failed.' }
 } finally { Pop-Location }

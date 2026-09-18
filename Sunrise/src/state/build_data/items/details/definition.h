@@ -114,6 +114,8 @@ struct Definition {
     /** Number of filled leading entries in `renderOverrides`. */
     std::uint8_t renderOverrideCount{};
     std::array<RenderOverride, kRenderOverrideCapacity> renderOverrides{};
+    /** First quality-version cap in item levels; zero means no declared cap. */
+    float levelCap{};
 };
 
 } // namespace sunrise::state::build_data::items::details

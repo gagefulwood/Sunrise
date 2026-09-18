@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include "codec.h"
@@ -222,8 +223,10 @@ bool decode(const MaterialRequirementSetRecord& record,
 
 /** Encodes the optional equipment slot without writing the optional's own storage. */
 bool encode(const items::details::Definition& value, ItemDetailRecord& record) noexcept {
-    if (value.instancedDefinitionState != items::details::InstancedDefinitionState::stackable
-        && value.instancedDefinitionState != items::details::InstancedDefinitionState::instanced) {
+    if (!std::isfinite(value.levelCap) || value.levelCap < 0
+        || (value.instancedDefinitionState != items::details::InstancedDefinitionState::stackable
+            && value.instancedDefinitionState
+                   != items::details::InstancedDefinitionState::instanced)) {
         return false;
     }
     record = {};
@@ -234,6 +237,7 @@ bool encode(const items::details::Definition& value, ItemDetailRecord& record) n
     record.ordinarySocketState = static_cast<std::uint8_t>(value.ordinarySocketState);
     record.ordinarySocketCount = value.ordinarySocketCount;
     record.maxStackSize = value.maxStackSize;
+    record.levelCap = value.levelCap;
     record.socketEntryListIndex = value.socketEntryListIndex;
     record.initialPlugIndices = value.initialPlugIndices;
     record.socketTypes = value.socketTypes;
@@ -259,13 +263,15 @@ bool encode(const items::details::Definition& value, ItemDetailRecord& record) n
 /** Turns the equipment-slot unset value back into a runtime optional. */
 bool decode(const ItemDetailRecord& record, items::details::Definition& value) noexcept {
     value = {};
-    if (record.instancedDefinition
-        > static_cast<std::uint8_t>(items::details::InstancedDefinitionState::instanced)) {
+    if (!std::isfinite(record.levelCap) || record.levelCap < 0
+        || record.instancedDefinition
+               > static_cast<std::uint8_t>(items::details::InstancedDefinitionState::instanced)) {
         return false;
     }
     value.definitionIndex = record.definitionIndex;
     value.bucketId = record.bucketId;
     value.maxStackSize = record.maxStackSize;
+    value.levelCap = record.levelCap;
     value.instancedDefinitionState =
         static_cast<items::details::InstancedDefinitionState>(record.instancedDefinition);
     if (record.equipmentSlot != kAbsentEquipmentSlot) {

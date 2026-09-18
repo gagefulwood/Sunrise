@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -33,15 +34,23 @@ inline constexpr std::int32_t kMinimumItemPower = 750;
  * @param level Whole item level; zero is unpowered.
  * @param output Receives Power on success; unchanged on failure.
  * @param fraction Tenths of a level, each worth one Power above the floor.
+ * @param levelCap Content quality cap in item levels; zero means uncapped.
  * @return False for invalid levels or Power outside the signed wire range.
  */
-[[nodiscard]] constexpr bool
-item_power(std::int32_t level, std::int32_t& output, std::uint8_t fraction = 0) noexcept {
-    if (!account::inventory::valid_level(level, fraction)
+[[nodiscard]] inline bool item_power(std::int32_t level,
+                                     std::int32_t& output,
+                                     std::uint8_t fraction = 0,
+                                     float levelCap = 0) noexcept {
+    if (!std::isfinite(levelCap) || levelCap < 0
+        || !account::inventory::valid_level(level, fraction)
         || level > ((std::numeric_limits<std::int32_t>::max)() - fraction) / kPowerPerLevel) {
         return false;
     }
-    const std::int32_t power = kPowerPerLevel * level + fraction;
+    std::int32_t power = kPowerPerLevel * level + fraction;
+    const double capPower = static_cast<double>(levelCap) * kPowerPerLevel;
+    if (levelCap > 0 && capPower < power) {
+        power = static_cast<std::int32_t>(capPower);
+    }
     output = level == 0 ? 0 : (power < kMinimumItemPower ? kMinimumItemPower : power);
     return true;
 }

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <bitset>
+#include <cmath>
 #include <limits>
 #include <shared_mutex>
 #include <span>
@@ -77,6 +78,7 @@ static_assert(kDefinitionCapacity < kEmptyLookupRow);
 /** @return True when every structure field of the record is valid. */
 [[nodiscard]] bool definition_valid(const Definition& definition) noexcept {
     return definition.bucketId != items::kUnresolvedBucketId && definition.maxStackSize > 0
+           && std::isfinite(definition.levelCap) && definition.levelCap >= 0
            && instance_state_valid(definition.instancedDefinitionState)
            && equipment_slot_valid(definition) && ordinary_sockets_valid(definition);
 }

@@ -81,6 +81,15 @@ bool build_item_rows(const reader::Source& source,
     const bool retainDetails = needDetails || needCatalysts;
     const bool needSocketRows = needSocketPlugs || needCatalysts;
     const bool needDetailRows = needDetails || needSocketRows;
+    if (needDetailRows) {
+        std::uint32_t capTag = 0;
+        if (!tables::slot_tag(storage.root, tables::items::kQualityCapTableSlot, capTag)
+            || capTag == 0
+            || !reader::read_tag(source, storage.scratch, capTag, storage.qualityCapTable)) {
+            reason = "quality_caps";
+            return false;
+        }
+    }
     // Bucket equipment slots are derived from this same complete item walk, so a partial retry
     // must still revisit the table even when definitions and detail domains already published.
     const bool needRows = needDefinitions || needDetailRows || needBuckets;
@@ -223,8 +232,12 @@ bool build_item_rows(const reader::Source& source,
     // malformed row is omitted independently so unrelated Collections categories stay usable.
     if (published && needDetailRows) {
         reason = "details";
-        const DetailSource detailSource{
-            &source, &storage.scratch, container, table, &storage.definition};
+        const DetailSource detailSource{&source,
+                                        &storage.scratch,
+                                        container,
+                                        table,
+                                        &storage.definition,
+                                        storage.qualityCapTable};
         std::size_t builtDetailCount = 0;
         for (std::size_t slot = 0; slot < detailCount; ++slot) {
             build_details::Definition detail{};
