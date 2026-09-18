@@ -1,9 +1,43 @@
 #include "equipment_light_calculation.h"
 
+#include <algorithm>
+#include <array>
 #include <limits>
 
 namespace sunrise::state::equipment::light::calculation {
 namespace {
+
+/** Reward Power averages three weapon slots and five armour slots. */
+constexpr std::size_t kRewardSlotCount =
+    static_cast<std::size_t>(account::inventory::EquipmentSlot::classItem) + 1;
+/** Weapon and armour Exotic limits apply independently. */
+constexpr std::size_t kRewardWeaponCount =
+    static_cast<std::size_t>(account::inventory::EquipmentSlot::heavy) + 1;
+
+/**
+ * Only one slot in a weapon or armour group may use its Exotic candidate.
+ * @param ordinary Best non-Exotic Power per slot; zero means absent.
+ * @param exotic Best Exotic Power per slot, with the same extent as ordinary.
+ * @return Highest complete group total, or zero when no legal group exists.
+ */
+[[nodiscard]] std::int64_t best_reward_group(std::span<const std::int32_t> ordinary,
+                                             std::span<const std::int32_t> exotic) noexcept {
+    std::int64_t best = 0;
+    // The final choice uses no Exotic, including when every Exotic is weaker.
+    for (std::size_t selected = 0; selected <= ordinary.size(); ++selected) {
+        std::int64_t total = 0;
+        for (std::size_t slot = 0; slot < ordinary.size(); ++slot) {
+            const std::int32_t power = slot == selected ? exotic[slot] : ordinary[slot];
+            if (power == 0) {
+                total = 0;
+                break;
+            }
+            total += power;
+        }
+        best = (std::max)(best, total);
+    }
+    return best;
+}
 
 /**
  * Applies strict score upgrades from one profile or other-character source.
@@ -88,6 +122,34 @@ void add_slot_score(const SlotScores& scores,
 }
 
 } // namespace
+
+/**
+ * Computes reward base from eligible gear without changing displayed equipment Power.
+ * @param items Owned, eligible, quality-capped gear; Artifact and engrams are excluded.
+ * @param output Receives the floored eight-slot average only on success.
+ * @return False for invalid candidates or no complete loadout within both Exotic limits.
+ */
+bool reward_base(std::span<const EligibleRewardItem> items, std::int32_t& output) noexcept {
+    std::array<std::int32_t, kRewardSlotCount> ordinary{}, exotic{};
+    for (const EligibleRewardItem& item : items) {
+        const auto slot = static_cast<std::size_t>(item.slot);
+        if (slot >= ordinary.size() || item.power <= 0) {
+            return false;
+        }
+        auto& highest = item.exotic ? exotic[slot] : ordinary[slot];
+        highest = (std::max)(highest, item.power);
+    }
+    const auto weapons = best_reward_group(std::span(ordinary).first(kRewardWeaponCount),
+                                           std::span(exotic).first(kRewardWeaponCount));
+    const auto armour = best_reward_group(std::span(ordinary).subspan(kRewardWeaponCount),
+                                          std::span(exotic).subspan(kRewardWeaponCount));
+    if (weapons == 0 || armour == 0) {
+        return false;
+    }
+    output =
+        static_cast<std::int32_t>((weapons + armour) / static_cast<std::int64_t>(kRewardSlotCount));
+    return true;
+}
 
 /** Computes raw summary arrays and the selected character's merged weighted light values. */
 bool evaluate(const SlotScores& selectedCharacter,
