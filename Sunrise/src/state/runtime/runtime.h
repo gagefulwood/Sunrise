@@ -6,6 +6,7 @@
 #include <span>
 #include <variant>
 
+#include "../build_data/items/item_bundle.h"
 #include "../build_data/items/quest_initialization.h"
 #include "../build_data/records/definition.h"
 #include "state.h"
@@ -215,14 +216,11 @@ struct PendingDirectItemBundle {
 };
 
 /** Shared batch capacity covers both Triumph rewards and the nine-row Season package. */
-inline constexpr std::size_t kRecordRewardGrantCapacity = 9;
+inline constexpr std::size_t kRecordRewardGrantCapacity = build_data::items::kBundleMemberCapacity;
 static_assert(kRecordRewardGrantCapacity >= build_data::records::kRewardPerRecordCapacity);
 
 /** One direct item requested by a record reward policy. */
-struct DirectRecordReward {
-    std::uint16_t itemDefinitionIndex{};
-    std::int32_t quantity{};
-};
+using DirectRecordReward = build_data::items::BundleMember;
 
 enum class RecordRewardKind : std::uint8_t {
     characterInstance,

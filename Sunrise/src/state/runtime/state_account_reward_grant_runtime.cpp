@@ -63,19 +63,22 @@ namespace {
     if (const auto* bundle = std::get_if<PendingDirectItemBundle>(&mutation.grant)) {
         build_data::season_pass::Package package{};
         return reward.quantity == 1 && bundle->sourceDefinitionHash == reward.itemHash
-               && build_data::find_season_pass_package(reward.itemHash, package);
+               && build_data::find_season_pass_package(reward.itemHash, package)
+               && !package.directSack;
     }
+    build_data::season_pass::Package package{};
     const auto* resources = std::get_if<PendingRecordRewardGrant>(&mutation.grant);
     if (resources == nullptr || reward.quantity != 1
-        || reward.itemHash != progression::season_pass::kDestinationResourceBundleHash
-        || resources->rewardCount != progression::season_pass::kDestinationResourceHashes.size()) {
+        || !build_data::find_season_pass_package(reward.itemHash, package) || !package.directSack
+        || package.itemCount == 0 || package.itemCount > package.items.size()
+        || resources->vendorBundle.has_value()
+        || resources->claimedRecordIndex != kUnclaimedRecordIndex
+        || resources->rewardCount != package.itemCount) {
         return false;
     }
     for (std::size_t index = 0; index < resources->rewardCount; ++index) {
-        if (resources->rewards[index].definitionHash
-                != progression::season_pass::kDestinationResourceHashes[index]
-            || resources->rewards[index].quantity
-                   != progression::season_pass::kDestinationResourceQuantity) {
+        if (resources->rewards[index].definitionHash != package.items[index]
+            || resources->rewards[index].quantity != package.quantities[index]) {
             return false;
         }
     }

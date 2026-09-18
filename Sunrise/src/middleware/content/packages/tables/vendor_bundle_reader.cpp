@@ -7,31 +7,13 @@
 #include "../../../../state/unlocks/definition.h"
 #include "definition_index_table.h"
 #include "internal.h"
+#include "item_bundle_reader.h"
 
 namespace sunrise::middleware::content::packages::tables {
 namespace {
 namespace bundles = state::build_data::vendors::bundles;
-/** Native sack block pointer and serialized block class. */
-constexpr std::size_t kSackPointer = 0x58;
-constexpr std::uint32_t kSackClass = 0x808077CCU;
-/** Sack parameters are group hash, draw count and selection mode, in 12 bytes. */
-constexpr std::size_t kParameterStride = 12;
-constexpr std::uint32_t kParameterClass = 0x808077CFU;
-constexpr std::size_t kParameterCountOffset = 4;
-/** Sack +8 holds its parameter array; each list row also holds its entry array at +8. */
+/** Pool rows place their nested expression descriptor after the hash and padding. */
 constexpr std::size_t kNestedArrayOffset = 8;
-/** Reward list rows hold a hash and array descriptor; reward entries occupy 80 bytes. */
-constexpr std::size_t kListStride = 24, kRewardStride = 80;
-constexpr std::uint32_t kListClass = 0x8080748CU, kRewardClass = 0x8080748EU;
-/** Direct reward fields: quantity, child selectors, weight, group and nested conditions. */
-constexpr std::size_t kQuantityOffset = 4, kChildOffset = 8, kWeightOffset = 12;
-constexpr std::size_t kGroupOffset = 20, kConditionsOffset = 32;
-/** Nonempty trailing arrays have no supported payout interpretation. */
-constexpr auto kTrailingArrays = std::to_array<std::size_t>({48, 64});
-/** All-one selectors mean the reward has no child list or alternate payout. */
-constexpr std::uint32_t kNoChildren = 0xFFFFFFFFU;
-/** Deterministic direct members each have unit weight. */
-constexpr float kUnitWeight = 1.0F;
 /** Vendor sale array and purchase-expression list offsets in the native layout. */
 constexpr std::size_t kSalesOffset = 48, kPurchaseOffset = 8;
 /** An expression list contains 16-byte descriptors; instructions are opcode/operand pairs. */
@@ -113,72 +95,6 @@ bool account_flag(std::span<const std::byte> blob,
         }
     }
     return found;
-}
-
-/**
- * Read only direct, unconditional, unit-quantity members of a five-draw armour sack.
- * @param source Native blobs and item-table bounds.
- * @param output Receives item indices in authored order.
- * @return False for nested, weighted, conditional or incomplete payouts.
- */
-bool rewards(const VendorBundleSource& source, bundles::Definition& output) noexcept {
-    std::int64_t relative{};
-    if (!read(source.item, kSackPointer, relative) || relative == 0
-        || relative > (std::numeric_limits<std::int64_t>::max)()
-                          - static_cast<std::int64_t>(kSackPointer)) {
-        return false;
-    }
-    const auto target = relative + static_cast<std::int64_t>(kSackPointer);
-    if (target < static_cast<std::int64_t>(sizeof(std::uint32_t))
-        || static_cast<std::uint64_t>(target) > source.item.size()
-        || source.item.size() - static_cast<std::size_t>(target) < kExpressionStride) {
-        return false;
-    }
-    const auto block = static_cast<std::size_t>(target);
-    std::uint32_t type{}, group{}, draws{};
-    std::uint16_t listIndex{};
-    Array parameters{}, lists{}, members{};
-    if (!read(source.item, block - sizeof(type), type) || type != kSackClass
-        || !read(source.item, block, listIndex)
-        || !array(
-            source.item, block + kNestedArrayOffset, kParameterClass, kParameterStride, parameters)
-        || parameters.count != 1 || !read(source.item, parameters.dataOffset, group)
-        || !read(source.item, parameters.dataOffset + kParameterCountOffset, draws)
-        || draws != output.items.size()
-        || !array(source.rewards, kTableArrayDescriptor, kListClass, kListStride, lists)
-        || listIndex >= lists.count
-        || !array(source.rewards,
-                  lists.dataOffset + listIndex * kListStride + kNestedArrayOffset,
-                  kRewardClass,
-                  kRewardStride,
-                  members)
-        || members.count != draws) {
-        return false;
-    }
-    for (std::size_t index = 0; index < output.items.size(); ++index) {
-        const auto at = members.dataOffset + index * kRewardStride;
-        std::uint32_t quantity{}, children{}, memberGroup{};
-        std::uint64_t conditions{};
-        float weight{};
-        auto& item = output.items[index];
-        const auto prior = std::span(output.items).first(index);
-        if (!read(source.rewards, at, item) || item >= source.itemCount
-            || !read(source.rewards, at + kQuantityOffset, quantity) || quantity != 1
-            || !read(source.rewards, at + kChildOffset, children) || children != kNoChildren
-            || !read(source.rewards, at + kWeightOffset, weight) || weight != kUnitWeight
-            || !read(source.rewards, at + kGroupOffset, memberGroup) || memberGroup != group
-            || !read(source.rewards, at + kConditionsOffset, conditions) || conditions != 0
-            || std::find(prior.begin(), prior.end(), item) != prior.end()) {
-            return false;
-        }
-        for (auto offset : kTrailingArrays) {
-            std::uint64_t count{};
-            if (!read(source.rewards, at + offset, count) || count != 0) {
-                return false;
-            }
-        }
-    }
-    return true;
 }
 
 /**
@@ -310,7 +226,8 @@ bool read_vendor_bundle(const VendorBundleSource& source,
     std::uint16_t claimSlot{}, uniqueRow{}, uniqueSlot{};
     if (!account_flag(source.flagMap, true, effect.flagHash, result.claimRow, claimSlot)
         || !account_flag(source.flagMap, false, claimSlot, uniqueRow, uniqueSlot)
-        || uniqueRow != result.claimRow || !rewards(source, result)
+        || uniqueRow != result.claimRow
+        || !read_item_bundle(source.item, source.rewards, source.itemCount, result.rewards)
         || !gates(source, claimSlot, result)) {
         return false;
     }

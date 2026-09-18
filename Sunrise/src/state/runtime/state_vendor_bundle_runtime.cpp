@@ -95,11 +95,9 @@ VendorBundleDisposition prepare_vendor_bundle(std::uint16_t vendorIndex,
         || !eligible(rule, account.characters[selected].characterClass, banks)) {
         return VendorBundleDisposition::refused;
     }
-    std::array<DirectRecordReward, bundles::kPieceCount> rewards{};
-    for (std::size_t index = 0; index < rewards.size(); ++index) {
-        rewards[index] = {rule.items[index], 1};
-    }
-    if (!prepare_record_reward_grant(rewards, kUnclaimedRecordIndex, mutation)) {
+    if (!prepare_record_reward_grant(std::span(rule.rewards.members).first(rule.rewards.count),
+                                     kUnclaimedRecordIndex,
+                                     mutation)) {
         mutation = {};
         return VendorBundleDisposition::refused;
     }
@@ -130,17 +128,18 @@ bool vendor_bundle_claim_row(const PendingRecordRewardGrant& mutation,
     const auto& claim = *mutation.vendorBundle;
     bundles::Definition rule{};
     if (!bundles::find(claim.sourceHash, rule) || rule.vendorIndex != claim.vendorIndex
-        || rule.saleIndex != claim.saleIndex || mutation.rewardCount != rule.items.size()
+        || rule.saleIndex != claim.saleIndex || mutation.rewardCount != rule.rewards.count
         || claim.beforeClaim != banks.accountFlags[rule.claimRow]
         || !eligible(rule, mutation.beforeCharacter.characterClass, banks)) {
         return false;
     }
-    for (std::size_t index = 0; index < rule.items.size(); ++index) {
+    for (std::size_t index = 0; index < rule.rewards.count; ++index) {
         build_data::items::Definition item{};
         const auto& reward = mutation.rewards[index];
-        if (!build_data::find_item_definition_index(rule.items[index], item)
-            || reward.definitionHash != item.definitionHash || reward.quantity != 1
-            || reward.kind != RecordRewardKind::characterInstance) {
+        if (!build_data::find_item_definition_index(rule.rewards.members[index].itemDefinitionIndex,
+                                                    item)
+            || reward.definitionHash != item.definitionHash
+            || reward.quantity != rule.rewards.members[index].quantity) {
             return false;
         }
     }

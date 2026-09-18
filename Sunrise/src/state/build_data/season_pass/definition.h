@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "../items/item_bundle.h"
+
 namespace sunrise::state::build_data::season_pass {
 
 /** Reward rows the installed pass declares. The shipped build carries 196. */
@@ -12,8 +14,8 @@ inline constexpr std::size_t kRewardCapacity = 256;
 /** Wrapper rewards that open into a set. The shipped pass carries one per character class. */
 inline constexpr std::size_t kPackageCapacity = 8;
 
-/** Items one wrapper opens into. The shipped wrappers each carry six. */
-inline constexpr std::size_t kPackageItemCapacity = 8;
+/** Package members fit the existing shared reward batch. */
+inline constexpr std::size_t kPackageItemCapacity = items::kBundleMemberCapacity;
 
 /** A reward whose claim flag no mapping table addresses carries this instead of an index. */
 inline constexpr std::uint16_t kUnavailableFlagIndex = 0xFFFFU;
@@ -38,6 +40,9 @@ struct Package {
     std::uint32_t definitionHash{};
     /** Authored definition hashes the wrapper opens into, in declared order. */
     std::array<std::uint32_t, kPackageItemCapacity> items{};
+    /** Direct sacks carry authored stack quantities; gear sets keep this array clear. */
+    std::array<std::int32_t, kPackageItemCapacity> quantities{};
+    bool directSack{};
     std::uint8_t itemCount{};
 };
 

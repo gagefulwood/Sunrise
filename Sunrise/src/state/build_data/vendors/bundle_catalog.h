@@ -4,6 +4,7 @@
 #include <span>
 
 #include "../../account/account_state.h"
+#include "../items/item_bundle.h"
 
 namespace sunrise::state::build_data::vendors::bundles {
 
@@ -31,7 +32,7 @@ struct Definition {
     CharacterClass characterClass{};
     std::uint16_t claimRow{};
     std::array<std::uint16_t, kPieceCount> requiredRows{};
-    std::array<std::uint16_t, kPieceCount> items{};
+    items::ItemBundle rewards{};
 };
 
 /** Discard extracted bindings when the base vendor catalog changes. */

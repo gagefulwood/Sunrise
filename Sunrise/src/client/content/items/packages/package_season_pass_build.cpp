@@ -2,6 +2,8 @@
 #include <cstring>
 #include <limits>
 
+#include "../../../../middleware/content/packages/tables/item_bundle_reader.h"
+#include "../../../../state/progression/season_pass_reward_catalog.h"
 #include "internal.h"
 
 namespace sunrise::client::content::items::packages {
@@ -28,16 +30,37 @@ read(std::span<const std::byte> blob, std::size_t offset, Value& value) noexcept
  * @param definition Whole item definition blob.
  * @param itemTable Item index table blob.
  * @param itemRows Located item index array.
+ * @param rewards Native sack reward table, empty when unavailable.
  * @param package Receives the wrapper's items, or stays empty when the item opens into nothing.
  * @return True when the item declares no set, or declares one that reads back whole.
  */
 [[nodiscard]] bool read_package(std::span<const std::byte> definition,
                                 std::span<const std::byte> itemTable,
                                 const tables::Array& itemRows,
+                                std::span<const std::byte> rewards,
                                 domain::Package& package) noexcept {
     tables::Array set{};
     if (!tables::find_optional_array_at(definition, tables::kGearsetItemField, set)) {
         return false;
+    }
+    if (package.definitionHash == state::progression::season_pass::kDestinationResourceBundleHash) {
+        state::build_data::items::ItemBundle bundle{};
+        if (set.count != 0
+            || !tables::read_item_bundle(definition, rewards, itemRows.count, bundle)) {
+            return false;
+        }
+        for (std::size_t index = 0; index < bundle.count; ++index) {
+            tables::IndexRow entry{};
+            if (!tables::index_row(
+                    itemTable, itemRows, bundle.members[index].itemDefinitionIndex, entry)) {
+                return false;
+            }
+            package.items[index] = entry.definitionHash;
+            package.quantities[index] = bundle.members[index].quantity;
+        }
+        package.itemCount = static_cast<std::uint8_t>(bundle.count);
+        package.directSack = true;
+        return true;
     }
     if (set.count == 0) {
         return true;
@@ -114,6 +137,11 @@ bool build_season_pass(const reader::Source& source,
         return false;
     }
 
+    /** Installed native sack reward-list table. */
+    constexpr std::uint32_t kSackRewardTableTag = 0x81319335U;
+    std::vector<std::byte> sackRewards;
+    // Failure disables sack claims without dropping the ordinary Season reward catalog.
+    (void)reader::read_tag(source, storage.scratch, kSackRewardTableTag, sackRewards);
     for (std::uint64_t row = 0; row < rewards.count; ++row) {
         const std::size_t at =
             rewards.dataOffset + static_cast<std::size_t>(row) * tables::kProgressionRewardStride;
@@ -158,8 +186,11 @@ bool build_season_pass(const reader::Source& source,
                     return row.definitionHash == entry.definitionHash;
                 })
             && reader::read_tag(source, storage.scratch, entry.targetTag, storage.definition)
-            && read_package(
-                std::span<const std::byte>{storage.definition}, itemTable, itemRows, package)
+            && read_package(std::span<const std::byte>{storage.definition},
+                            itemTable,
+                            itemRows,
+                            sackRewards,
+                            package)
             && package.itemCount != 0) {
             storage.seasonPassPackages[storage.seasonPassPackageCount++] = package;
         }

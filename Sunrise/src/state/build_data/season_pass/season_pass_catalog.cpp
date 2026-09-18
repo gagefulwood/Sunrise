@@ -34,8 +34,22 @@ bool valid(std::span<const Reward> rewards, std::span<const Package> packages) n
         return reward.itemHash != 0 && reward.quantity != 0;
     });
     return granting && std::all_of(packages.begin(), packages.end(), [](const Package& package) {
-               return package.definitionHash != 0 && package.itemCount != 0
-                      && package.itemCount <= kPackageItemCapacity;
+               if (package.definitionHash == 0 || package.itemCount == 0
+                   || package.itemCount > kPackageItemCapacity) {
+                   return false;
+               }
+               for (std::size_t index = 0; index < package.items.size(); ++index) {
+                   if (index >= package.itemCount) {
+                       if (package.items[index] != 0 || package.quantities[index] != 0) {
+                           return false;
+                       }
+                   } else if (package.items[index] == 0
+                              || (package.directSack ? package.quantities[index] <= 0
+                                                     : package.quantities[index] != 0)) {
+                       return false;
+                   }
+               }
+               return true;
            });
 }
 

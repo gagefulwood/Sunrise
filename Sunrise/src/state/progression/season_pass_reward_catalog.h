@@ -11,24 +11,8 @@ inline constexpr std::uint16_t kProgressionDefinitionIndex = 40;
 /** Repeating HUD bar paired with the Arrivals progression. */
 inline constexpr std::uint16_t kHudProgressionDefinitionIndex = 41;
 
-/**
- * The pass package expands into every installed Season 11 planetary-material stack.
- * TODO: extract; the package names a sack reward set, not an item list, and no reader
- * resolves a reward set to its members yet.
- */
+/** The Season resource wrapper opens on claim; its native sack supplies members and quantities. */
 inline constexpr std::uint32_t kDestinationResourceBundleHash = 3104539653U;
-inline constexpr std::uint16_t kDestinationResourceQuantity = 50;
-inline constexpr std::array<std::uint32_t, 9> kDestinationResourceHashes{
-    3592324052U, // Helium Filaments
-    31293053U,   // Seraphite
-    49145143U,   // Simulation Seed
-    2014411539U, // Alkane Dust
-    1305274547U, // Phaseglass Needle
-    950899352U,  // Dusklight Shard
-    3487922223U, // Microphasic Datalattice
-    592227263U,  // Baryon Bough
-    1177810185U, // Etheric Spiral
-};
 
 /** The two auto-decrypting engram item definitions. */
 inline constexpr std::uint32_t kLegendaryEngramHash = 2223145359U;

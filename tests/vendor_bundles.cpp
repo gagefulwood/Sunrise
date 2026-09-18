@@ -62,6 +62,23 @@ std::size_t g_capacity = kPieces;
 std::uint32_t g_cost{};
 bool g_missingGear{};
 std::size_t g_recordRevocations{};
+bool g_resourceMode{};
+std::size_t g_seasonRevocations{};
+/** Native Season resource package, in reward-list order. */
+constexpr std::uint32_t kResourcePackage = 3104539653U;
+constexpr auto kResourceHashes = std::to_array<std::uint32_t>({
+    1305274547U,
+    950899352U,
+    2014411539U,
+    3487922223U,
+    49145143U,
+    31293053U,
+    1177810185U,
+    592227263U,
+    3592324052U,
+});
+/** Retained resource rows grant fifty units; fixture stack capacity permits two grants. */
+constexpr std::int32_t kResourceQuantity = 50, kResourceStackCapacity = 100;
 
 /** @param passed Check result. @param label Failure description. */
 void check(bool passed, const char* label) {
@@ -90,6 +107,7 @@ std::string read_text(const std::string& path) {
 /** @param fixture Class binding to seed in the disposable database. */
 void reset(const Fixture& fixture) {
     g_fixture = &fixture;
+    g_resourceMode = false;
     g_capacity = kPieces;
     g_cost = 0;
     g_missingGear = false;
@@ -102,9 +120,10 @@ void reset(const Fixture& fixture) {
         row.saleIndex = expected.sale;
         row.characterClass = expected.characterClass;
         row.claimRow = expected.claimRow;
+        row.rewards.count = kPieces;
         for (std::size_t piece = 0; piece < kPieces; ++piece) {
             row.requiredRows[piece] = static_cast<std::uint16_t>(expected.firstRequiredRow + piece);
-            row.items[piece] = static_cast<std::uint16_t>(kFirstGearIndex + piece);
+            row.rewards.members[piece] = {static_cast<std::uint16_t>(kFirstGearIndex + piece), 1};
         }
     }
     check(bundles::replace(definitions), "publish synthetic installed bundles");
@@ -257,6 +276,37 @@ void verify() {
           "ordinary batch grants do not acquire a vendor claim");
     check(g_recordRevocations == 0, "vendor refusals never revoke Triumphs");
 }
+/** Exercise the second consumer through the real Season commit and SQLite item store. */
+void verify_resource_package() {
+    reset(kFixtures.front());
+    g_resourceMode = true;
+    std::array<state::DirectRecordReward, kResourceHashes.size()> rewards{};
+    for (std::size_t index = 0; index < rewards.size(); ++index) {
+        rewards[index] = {static_cast<std::uint16_t>(kFirstGearIndex + index), kResourceQuantity};
+    }
+    state::PendingSeasonPassReward season{};
+    auto& batch = season.grant.emplace<state::PendingRecordRewardGrant>();
+    check(state::prepare_record_reward_grant(rewards, state::kUnclaimedRecordIndex, batch),
+          "prepare nine native material quantities");
+    season.sourceDefinitionHash = kResourcePackage;
+    season.prepared = true;
+    auto incorrect = season;
+    std::get<state::PendingRecordRewardGrant>(incorrect.grant).rewards.front().quantity += 1;
+    check(!state::commit_season_pass_reward(incorrect) && store::account().profileItemCount == 0,
+          "Season rejects a payout that differs from extracted quantities");
+    check(state::commit_season_pass_reward(season)
+              && store::account().profileItemCount == rewards.size(),
+          "Season commits all resource stacks");
+    const auto account = store::account();
+    for (std::size_t index = 0; index < rewards.size(); ++index) {
+        check(account.profileItems[index].definitionHash == kResourceHashes[index]
+                  && account.profileItems[index].quantity == kResourceQuantity,
+              "exact native resource payout");
+    }
+    check(g_seasonRevocations == 1 && g_recordRevocations == 0,
+          "failed Season grant revokes its Season claim only");
+}
+
 } // namespace
 
 namespace sunrise::core::log {
@@ -299,8 +349,9 @@ bool socket_plug_rules_ready() noexcept {
 bool is_socket_plug_allowed(std::uint16_t, std::uint8_t, std::uint16_t) noexcept {
     return false;
 }
-bool find_season_pass_reward(std::uint16_t, season_pass::Reward&) noexcept {
-    return false;
+bool find_season_pass_reward(std::uint16_t, season_pass::Reward& reward) noexcept {
+    reward = {kResourcePackage, 1};
+    return g_resourceMode;
 }
 /**
  * Only the active fixture's wrapper and available gear resolve.
@@ -312,6 +363,13 @@ bool find_item_definition_index(std::uint16_t index, items::Definition& definiti
     definition = {};
     definition.definitionIndex = index;
     definition.bucketId = kBucket;
+    if (g_resourceMode) {
+        if (index < kFirstGearIndex || index - kFirstGearIndex >= kResourceHashes.size()) {
+            return false;
+        }
+        definition.definitionHash = kResourceHashes[index - kFirstGearIndex];
+        return true;
+    }
     if (index == kWrapperIndex) {
         definition.definitionHash = g_fixture->wrapper;
         return true;
@@ -323,6 +381,15 @@ bool find_item_definition_index(std::uint16_t index, items::Definition& definiti
     return true;
 }
 bool find_item_definition_hash(std::uint32_t hash, items::Definition& definition) noexcept {
+    if (g_resourceMode) {
+        for (std::size_t index = 0; index < kResourceHashes.size(); ++index) {
+            if (hash == kResourceHashes[index]) {
+                return find_item_definition_index(
+                    static_cast<std::uint16_t>(kFirstGearIndex + index), definition);
+            }
+        }
+        return false;
+    }
     for (std::uint16_t index = 0; index < kPieces; ++index) {
         if (hash == g_fixture->items[index]) {
             return find_item_definition_index(static_cast<std::uint16_t>(kFirstGearIndex + index),
@@ -347,6 +414,11 @@ bool find_configured_item_detail(std::uint16_t definitionIndex,
     definition.definitionIndex = definitionIndex;
     definition.definitionHash = item.definitionHash;
     definition.bucketId = kBucket;
+    if (g_resourceMode) {
+        definition.instancedDefinitionState = items::details::InstancedDefinitionState::stackable;
+        definition.maxStackSize = kResourceStackCapacity;
+        return true;
+    }
     definition.equipmentSlot = 0;
     definition.instancedDefinitionState = items::details::InstancedDefinitionState::instanced;
     return true;
@@ -354,14 +426,27 @@ bool find_configured_item_detail(std::uint16_t definitionIndex,
 bool find_inventory_bucket_descriptor(std::uint8_t bucketId,
                                       inventory::buckets::Descriptor& descriptor) noexcept {
     descriptor = {};
-    descriptor.arraySelector = inventory::buckets::ArraySelector::character;
+    descriptor.arraySelector = g_resourceMode ? inventory::buckets::ArraySelector::profile
+                                              : inventory::buckets::ArraySelector::character;
+    descriptor.slotCount = static_cast<std::uint16_t>(kResourceHashes.size());
     return bucketId == kBucket;
 }
 bool is_profile_action_source(std::uint16_t, std::uint8_t) noexcept {
     return false;
 }
-bool find_season_pass_package(std::uint32_t, season_pass::Package&) noexcept {
-    return false;
+bool find_season_pass_package(std::uint32_t hash, season_pass::Package& package) noexcept {
+    package = {};
+    if (!g_resourceMode || hash != kResourcePackage) {
+        return false;
+    }
+    package.definitionHash = kResourcePackage;
+    package.directSack = true;
+    package.itemCount = static_cast<std::uint8_t>(kResourceHashes.size());
+    for (std::size_t index = 0; index < kResourceHashes.size(); ++index) {
+        package.items[index] = kResourceHashes[index];
+        package.quantities[index] = kResourceQuantity;
+    }
+    return true;
 }
 bool find_collectible_definition(std::uint16_t, collectibles::Definition&) noexcept {
     return false;
@@ -369,7 +454,7 @@ bool find_collectible_definition(std::uint16_t, collectibles::Definition&) noexc
 } // namespace sunrise::state::build_data
 namespace sunrise::state {
 void revoke_season_pass_reward(std::uint16_t) noexcept {
-    check(false, "unexpected Season revoke");
+    ++g_seasonRevocations;
 }
 AccountState account_snapshot() noexcept {
     return investment::store::account();
@@ -416,6 +501,7 @@ int main(int argc, char** argv) {
                       read_text(root + "/account_settings_defaults.sql")),
           "open disposable database");
     verify();
+    verify_resource_package();
     reset(kFixtures.front());
     state::PendingRecordRewardGrant pending{};
     prepare(pending);

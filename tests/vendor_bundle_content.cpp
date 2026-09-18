@@ -6,12 +6,20 @@
 #include <string>
 #include <vector>
 
+#include "middleware/content/packages/tables/item_bundle_reader.h"
 #include "middleware/content/packages/tables/vendor_bundle_reader.h"
+#include "state/build_data/cache/records/codec.h"
+#include "state/build_data/season_pass/season_pass_catalog.h"
 
 namespace {
 namespace tables = sunrise::middleware::content::packages::tables;
 namespace bundles = sunrise::state::build_data::vendors::bundles;
 using Bytes = std::vector<std::byte>;
+/** The retained Solstice cases contain five items; this is not a parser limit. */
+constexpr std::size_t kArmourPieces = 5;
+/** Both retained direct-sack families use selection mode 255. */
+constexpr std::uint32_t kDirectMode = 255;
+constexpr std::size_t kModeOffset = 8;
 
 /** Native descriptors have count/relative fields, preceded headers have marker/count/class. */
 constexpr std::size_t kDescriptorBytes = 16, kPointerOffset = 8, kHeaderBytes = 16;
@@ -87,20 +95,21 @@ std::size_t array(Bytes& bytes,
 struct Fixture {
     Bytes item = Bytes(kPrefixBytes), rewards = Bytes(kPrefixBytes);
     Bytes vendor = Bytes(kPrefixBytes), flags = Bytes(kPrefixBytes), pools = Bytes(kPrefixBytes);
-    std::size_t rewardAt{}, claimAt{}, poolAt{}, claimProgram{};
+    std::size_t rewardAt{}, claimAt{}, poolAt{}, claimProgram{}, parameterAt{};
 
-    /** Build independent synthetic native arrays for one supported claim policy. */
-    Fixture() {
+    /** @param memberCount Authored direct reward count, independent of the gate count. */
+    explicit Fixture(std::size_t memberCount = kArmourPieces) {
         put(item, kSackPointer, static_cast<std::int64_t>(kSackBlock - kSackPointer));
         put(item, kSackBlock - sizeof(kSackClass), kSackClass);
         const auto parameters =
             array(item, kSackBlock + kTableArray, 1, kParameterStride, kParameterClass);
         put(item, parameters, kGroup);
-        put(item, parameters + kQuantityOffset, static_cast<std::uint32_t>(bundles::kPieceCount));
+        put(item, parameters + kQuantityOffset, static_cast<std::uint32_t>(memberCount));
+        parameterAt = parameters;
+        put(item, parameters + kModeOffset, kDirectMode);
         const auto list = array(rewards, kTableArray, 1, kListStride, kListClass);
-        rewardAt =
-            array(rewards, list + kTableArray, bundles::kPieceCount, kRewardStride, kRewardClass);
-        for (std::size_t index = 0; index < bundles::kPieceCount; ++index) {
+        rewardAt = array(rewards, list + kTableArray, memberCount, kRewardStride, kRewardClass);
+        for (std::size_t index = 0; index < memberCount; ++index) {
             const auto at = rewardAt + index * kRewardStride;
             put(rewards, at, static_cast<std::uint16_t>(kFirstItem + index));
             put(rewards, at + kQuantityOffset, std::uint32_t{1});
@@ -128,22 +137,21 @@ struct Fixture {
         const auto pool = array(pools, kTableArray, 1, kListStride, kPoolClass);
         poolAt = array(pools,
                        pool + kTableArray,
-                       bundles::kPieceCount * 2 - 1,
+                       kArmourPieces * 2 - 1,
                        kInstructionStride,
                        kInstructionClass);
-        for (std::size_t index = 0; index < bundles::kPieceCount; ++index) {
+        for (std::size_t index = 0; index < kArmourPieces; ++index) {
             const auto at = poolAt + index * kInstructionStride;
             put(pools, at, kFlagOpcode);
             put(pools, at + sizeof(kFlagOpcode), static_cast<std::uint32_t>(kFirstFlag + index));
         }
-        for (std::size_t index = bundles::kPieceCount; index < bundles::kPieceCount * 2 - 1;
-             ++index) {
+        for (std::size_t index = kArmourPieces; index < kArmourPieces * 2 - 1; ++index) {
             put(pools, poolAt + index * kInstructionStride, kAndOpcode);
         }
-        claimAt = array(flags, kTableArray, bundles::kPieceCount + 1, kMapStride, kMapClass);
+        claimAt = array(flags, kTableArray, kArmourPieces + 1, kMapStride, kMapClass);
         put(flags, claimAt, bundles::kClaimEffects.front().flagHash);
         put(flags, claimAt + sizeof(std::uint32_t), kClaimSlot);
-        for (std::size_t index = 0; index < bundles::kPieceCount; ++index) {
+        for (std::size_t index = 0; index < kArmourPieces; ++index) {
             const auto at = claimAt + (index + 1) * kMapStride;
             put(flags, at + sizeof(std::uint32_t), static_cast<std::uint16_t>(kFirstFlag + index));
         }
@@ -168,16 +176,19 @@ void synthetic_checks() {
         return tables::read_vendor_bundle(
             fixture.source(), bundles::kClaimEffects.front(), 0, parsed);
     };
-    check(read() && parsed.claimRow == 0 && parsed.items.front() == kFirstItem
+    check(read() && parsed.claimRow == 0
+              && parsed.rewards.members.front().itemDefinitionIndex == kFirstItem
               && parsed.requiredRows.front() == 1
               && parsed.characterClass == sunrise::state::CharacterClass::hunter,
           "relocated native members and flag mappings, not installed constants");
-    auto changed = static_cast<std::uint16_t>(kFirstItem + bundles::kPieceCount);
+    auto changed = static_cast<std::uint16_t>(kFirstItem + kArmourPieces);
     put(fixture.rewards, fixture.rewardAt, changed);
-    check(read() && parsed.items.front() == changed, "payout follows content");
-    const auto unchanged = parsed.items;
+    check(read() && parsed.rewards.members.front().itemDefinitionIndex == changed,
+          "payout follows content");
+    const auto unchanged = parsed.rewards.members;
     put(fixture.rewards, fixture.rewardAt + kChildOffset, std::uint32_t{0});
-    check(!read() && parsed.items == unchanged, "child payout refused without partial output");
+    check(!read() && parsed.rewards.members == unchanged,
+          "child payout refused without partial output");
     fixture = Fixture{};
     put(fixture.rewards, fixture.rewardAt + kWeightOffset, 0.5F);
     check(!read(), "weighted payout refused");
@@ -215,7 +226,66 @@ void synthetic_checks() {
     fixture = Fixture{};
     fixture.rewards.pop_back();
     check(!read(), "truncated array refused");
-    std::puts("PASS: content-driven members/gates, malformed input and unsupported contracts");
+    fixture = Fixture{sunrise::state::build_data::items::kBundleMemberCapacity};
+    for (std::size_t index = 0; index < sunrise::state::build_data::items::kBundleMemberCapacity;
+         ++index) {
+        // The second native case grants fifty units per material.
+        put(fixture.rewards,
+            fixture.rewardAt + index * kRewardStride + kQuantityOffset,
+            std::uint32_t{50});
+    }
+    sunrise::state::build_data::items::ItemBundle contents{};
+    check(tables::read_item_bundle(fixture.item, fixture.rewards, kItemCount, contents)
+              && contents.count == sunrise::state::build_data::items::kBundleMemberCapacity
+              && contents.members.back().quantity == 50,
+          "nine-member quantified sack needs no wrapper identity");
+    put(fixture.item, fixture.parameterAt + kModeOffset, std::uint32_t{0});
+    check(!tables::read_item_bundle(fixture.item, fixture.rewards, kItemCount, contents),
+          "unknown selection mode refused");
+    fixture = Fixture{1};
+    check(tables::read_item_bundle(fixture.item, fixture.rewards, kItemCount, contents)
+              && contents.count == 1,
+          "single-member sack");
+    put(fixture.rewards, fixture.rewardAt + kQuantityOffset, std::uint32_t{0});
+    check(!tables::read_item_bundle(fixture.item, fixture.rewards, kItemCount, contents),
+          "zero quantity refused");
+    put(fixture.rewards,
+        fixture.rewardAt + kQuantityOffset,
+        (std::numeric_limits<std::uint32_t>::max)());
+    check(!tables::read_item_bundle(fixture.item, fixture.rewards, kItemCount, contents),
+          "quantity overflow refused");
+    fixture = Fixture{sunrise::state::build_data::items::kBundleMemberCapacity + 1};
+    check(!tables::read_item_bundle(fixture.item, fixture.rewards, kItemCount, contents),
+          "oversized sack refused without truncation");
+    std::puts("PASS: content-driven members/quantities/gates and unsupported-contract refusal");
+}
+
+/** Quantities and opening kind survive the versioned content cache. */
+void cache_checks() {
+    namespace data = sunrise::state::build_data;
+    data::season_pass::Package package{};
+    package.definitionHash = kGroup;
+    package.itemCount = static_cast<std::uint8_t>(package.items.size());
+    package.directSack = true;
+    for (std::size_t index = 0; index < package.itemCount; ++index) {
+        package.items[index] = static_cast<std::uint32_t>(kFirstItem + index);
+        // Match the native resource stack quantity, not the armour quantity.
+        package.quantities[index] = 50;
+    }
+    data::cache::records::SeasonPassPackageRecord record{};
+    data::season_pass::Package restored{};
+    check(data::cache::records::encode(package, record)
+              && data::cache::records::decode(record, restored) && restored.items == package.items
+              && restored.quantities == package.quantities && restored.directSack
+              && restored.itemCount == package.itemCount,
+          "sack content cache round trip");
+    const std::array<data::season_pass::Reward, 1> rewards{{{kGroup, 1}}};
+    check(data::season_pass::valid(rewards, std::span(&restored, 1)), "valid cached sack");
+    restored.quantities.front() = 0;
+    check(!data::season_pass::valid(rewards, std::span(&restored, 1)),
+          "cached empty payout refused");
+    record.directSack = 2;
+    check(!data::cache::records::decode(record, restored), "invalid cached opening kind refused");
 }
 
 /** @param path Retained native blob path. @return Its complete bytes. */
@@ -244,6 +314,20 @@ Bytes load(const char* path) {
  */
 int main(int argc, char** argv) {
     synthetic_checks();
+    cache_checks();
+    // A content-only invocation takes item, reward table and item-table count.
+    if (argc == 4) {
+        const auto item = load(argv[1]), rewards = load(argv[2]);
+        sunrise::state::build_data::items::ItemBundle contents{};
+        check(tables::read_item_bundle(item, rewards, std::stoul(argv[3]), contents),
+              "native direct sack");
+        std::printf("PASS: native sack count=%zu members=", contents.count);
+        for (const auto& member : std::span(contents.members).first(contents.count)) {
+            std::printf(" %u:%d", member.itemDefinitionIndex, member.quantity);
+        }
+        std::puts("");
+        return 0;
+    }
     if (argc == 1) {
         return 0;
     }
@@ -267,8 +351,8 @@ int main(int argc, char** argv) {
                 result.sourceHash,
                 static_cast<unsigned>(result.characterClass),
                 result.claimRow);
-    for (auto itemIndex : result.items) {
-        std::printf(" %u", itemIndex);
+    for (auto member : std::span(result.rewards.members).first(result.rewards.count)) {
+        std::printf(" %u:%d", member.itemDefinitionIndex, member.quantity);
     }
     std::printf(" prerequisiteRows=");
     for (auto row : result.requiredRows) {

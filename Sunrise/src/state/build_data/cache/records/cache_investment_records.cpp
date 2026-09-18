@@ -123,6 +123,8 @@ bool encode(const season_pass::Package& value, SeasonPassPackageRecord& record) 
     record = {};
     record.definitionHash = value.definitionHash;
     record.items = value.items;
+    record.quantities = value.quantities;
+    record.directSack = static_cast<std::uint8_t>(value.directSack);
     record.itemCount = value.itemCount;
     return true;
 }
@@ -130,11 +132,14 @@ bool encode(const season_pass::Package& value, SeasonPassPackageRecord& record) 
 /** Decodes one season pass wrapper after checking its padding and item count. */
 bool decode(const SeasonPassPackageRecord& record, season_pass::Package& value) noexcept {
     value = {};
-    if (record.reserved != decltype(record.reserved){} || record.itemCount > record.items.size()) {
+    if (record.reserved != decltype(record.reserved){} || record.itemCount > record.items.size()
+        || record.directSack > 1) {
         return false;
     }
     value.definitionHash = record.definitionHash;
     value.items = record.items;
+    value.quantities = record.quantities;
+    value.directSack = record.directSack != 0;
     value.itemCount = record.itemCount;
     return true;
 }

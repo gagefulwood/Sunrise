@@ -44,21 +44,27 @@ prepare_premium_class_package(const state::build_data::season_pass::Package& pac
         package.definitionHash, std::span(itemIndices).first(package.itemCount), mutation);
 }
 
-/** Expands the manifest-authored destination package into all nine material stacks. */
-[[nodiscard]] bool
-prepare_destination_resource_bundle(state::PendingSeasonPassReward& grant) noexcept {
-    namespace pass = state::progression::season_pass;
-    std::array<state::DirectRecordReward, pass::kDestinationResourceHashes.size()> rewards{};
-    for (std::size_t index = 0; index < rewards.size(); ++index) {
+/**
+ * Prepare the extracted direct sack without assigning a vendor or Triumph claim.
+ * @param package Installed Season package with authored quantities.
+ * @param mutation Receives the complete grant on success.
+ * @return False when the catalog or any member cannot be granted.
+ */
+[[nodiscard]] bool prepare_package_rewards(const state::build_data::season_pass::Package& package,
+                                           state::PendingRecordRewardGrant& mutation) noexcept {
+    if (!package.directSack || package.itemCount == 0 || package.itemCount > package.items.size()) {
+        return false;
+    }
+    std::array<state::DirectRecordReward, state::kRecordRewardGrantCapacity> rewards{};
+    for (std::size_t index = 0; index < package.itemCount; ++index) {
         state::build_data::items::Definition definition{};
-        if (!state::build_data::find_item_definition_hash(pass::kDestinationResourceHashes[index],
-                                                          definition)) {
+        if (!state::build_data::find_item_definition_hash(package.items[index], definition)) {
             return false;
         }
-        rewards[index] = {definition.definitionIndex, pass::kDestinationResourceQuantity};
+        rewards[index] = {definition.definitionIndex, package.quantities[index]};
     }
-    auto& mutation = grant.grant.emplace<state::PendingRecordRewardGrant>();
-    return state::prepare_record_reward_grant(rewards, {}, mutation);
+    return state::prepare_record_reward_grant(
+        std::span(rewards).first(package.itemCount), state::kUnclaimedRecordIndex, mutation);
 }
 
 /** Chooses one installed weapon or selected-class armour item from an auto-decrypting engram. */
@@ -429,16 +435,20 @@ void claim_season_pass_reward(const middleware::web_service::Message& message,
     }
     state::build_data::season_pass::Package package{};
     if (state::build_data::find_season_pass_package(reward.itemHash, package)) {
-        auto& bundle = grant->grant.emplace<state::PendingDirectItemBundle>();
-        if (!prepare_premium_class_package(package, bundle)) {
+        const bool prepared =
+            package.directSack
+                ? prepare_package_rewards(package,
+                                          grant->grant.emplace<state::PendingRecordRewardGrant>())
+                : prepare_premium_class_package(
+                      package, grant->grant.emplace<state::PendingDirectItemBundle>());
+        if (!prepared) {
             clear_mutation(outcome);
             return fail("package_grant");
         }
     } else if (reward.itemHash == pass::kDestinationResourceBundleHash) {
-        if (!prepare_destination_resource_bundle(*grant)) {
-            clear_mutation(outcome);
-            return fail("resource_bundle");
-        }
+        // A missing sack must not fall back to granting its unopened wrapper.
+        clear_mutation(outcome);
+        return fail("resource_bundle");
     } else if (reward.itemHash == pass::kLegendaryEngramHash
                || reward.itemHash == pass::kExoticEngramHash) {
         std::uint16_t decryptedItemIndex = 0;

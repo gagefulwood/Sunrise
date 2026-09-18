@@ -31,7 +31,7 @@ namespace sunrise::state::build_data::cache::records {
 /** These 8 ASCII bytes mark a Sunrise build-data file. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', 'E', 'B'};
 /** Bump when stored layouts or extracted values change; other versions are rebuilt. */
-inline constexpr std::uint32_t kCacheFormatVersion = 65;
+inline constexpr std::uint32_t kCacheFormatVersion = 66;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -317,9 +317,11 @@ struct SeasonPassRewardRecord {
 struct SeasonPassPackageRecord {
     std::uint32_t definitionHash{};
     std::array<std::uint32_t, season_pass::kPackageItemCapacity> items{};
+    std::array<std::int32_t, season_pass::kPackageItemCapacity> quantities{};
+    std::uint8_t directSack{};
     std::uint8_t itemCount{};
     /** Must be zero, so the packed wrapper row always matches. */
-    std::array<std::uint8_t, 3> reserved{};
+    std::array<std::uint8_t, 2> reserved{};
 };
 
 /** Disk form of one repeatable bounty and the item-type its pool is keyed by. */
@@ -620,6 +622,7 @@ static_assert(sizeof(SeasonPassRewardRecord)
               == 2 * sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t) + 4 * sizeof(std::uint8_t));
 static_assert(sizeof(SeasonPassPackageRecord)
               == (1 + season_pass::kPackageItemCapacity) * sizeof(std::uint32_t)
+                     + season_pass::kPackageItemCapacity * sizeof(std::int32_t)
                      + 4 * sizeof(std::uint8_t));
 static_assert(sizeof(BountyRecord) == 2 * sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t));
 static_assert(sizeof(RecordDefinitionRecord)

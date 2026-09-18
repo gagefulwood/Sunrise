@@ -245,7 +245,7 @@ bool prepare_direct_item_bundle(std::uint32_t sourceDefinitionHash,
                                 PendingDirectItemBundle& mutation) noexcept {
     mutation = {};
     build_data::season_pass::Package package{};
-    if (!build_data::find_season_pass_package(sourceDefinitionHash, package)
+    if (!build_data::find_season_pass_package(sourceDefinitionHash, package) || package.directSack
         || itemDefinitionIndices.size() != package.itemCount) {
         return false;
     }
@@ -461,9 +461,9 @@ valid_item_acquisition_source(const PendingItemAcquisition& mutation) noexcept {
     std::uint64_t firstSoid = 0;
     if (!mutation.prepared
         || !build_data::find_season_pass_package(mutation.sourceDefinitionHash, package)
-        || mutation.itemCount != package.itemCount || mutation.accountSoid == 0
-        || mutation.characterSoid == 0 || mutation.firstInstanceSoid == 0
-        || mutation.characterIndex >= current.characterCount
+        || package.directSack || mutation.itemCount != package.itemCount
+        || mutation.accountSoid == 0 || mutation.characterSoid == 0
+        || mutation.firstInstanceSoid == 0 || mutation.characterIndex >= current.characterCount
         || mutation.expectedInventoryCount >= authored_inventory::kCharacterItemCapacity
         || current.primarySoid != mutation.accountSoid
         || !same_character(current.characters[mutation.characterIndex], mutation.beforeCharacter)

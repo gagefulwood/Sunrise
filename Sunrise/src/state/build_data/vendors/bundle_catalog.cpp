@@ -53,7 +53,12 @@ bool replace(std::span<const Definition> definitions) noexcept {
     for (std::size_t index = 0; index < definitions.size(); ++index) {
         const auto& definition = definitions[index];
         if (definition.sourceHash != kClaimEffects[index].itemHash
-            || definition.claimRow >= unlocks::kAccountFlagCapacity
+            || definition.claimRow >= unlocks::kAccountFlagCapacity || definition.rewards.count == 0
+            || definition.rewards.count > definition.rewards.members.size()
+            || !std::all_of(definition.rewards.members.begin(),
+                            definition.rewards.members.begin()
+                                + static_cast<std::ptrdiff_t>(definition.rewards.count),
+                            [](const auto& member) { return member.quantity > 0; })
             || !std::all_of(definition.requiredRows.begin(),
                             definition.requiredRows.end(),
                             [](auto row) { return row < unlocks::kAccountFlagCapacity; })) {

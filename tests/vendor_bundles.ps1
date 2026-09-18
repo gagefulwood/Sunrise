@@ -33,6 +33,9 @@ try {
     $bundleContentSources = @(
         'tests/vendor_bundle_content.cpp',
         'Sunrise/src/middleware/content/packages/tables/vendor_bundle_reader.cpp',
+        'Sunrise/src/middleware/content/packages/tables/item_bundle_reader.cpp',
+        'Sunrise/src/state/build_data/cache/records/cache_investment_records.cpp',
+        'Sunrise/src/state/build_data/season_pass/season_pass_catalog.cpp',
         'Sunrise/src/middleware/content/packages/tables/definition_index_table.cpp'
     ) | ForEach-Object { '"' + (Join-Path $bundleRoot $_) + '"' }
     $bundleContentCommand = "`"$bundleVcVars`" >nul && cl /nologo /std:c++20 /EHsc /O2 /W4 /WX /utf-8 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I`"$bundleSource`" " + ($bundleContentSources -join ' ') + ' /Fevendor_bundle_content.exe'

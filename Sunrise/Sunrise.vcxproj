@@ -104,6 +104,7 @@
     <ClCompile Include="src\state\investment\investment_database.cpp" />
     <ClCompile Include="src\middleware\content\packages\tables\quest_initialization_reader.cpp" />
     <ClCompile Include="src\middleware\content\packages\tables\vendor_bundle_reader.cpp" />
+    <ClCompile Include="src\middleware\content\packages\tables\item_bundle_reader.cpp" />
     <ClCompile Include="src\state\investment\investment_inventory_store.cpp" />
     <ClCompile Include="src\state\investment\investment_store_boot.cpp" />
     <ClCompile Include="src\state\investment\investment_unlock_store.cpp" />
@@ -2210,6 +2211,8 @@
     <ClInclude Include="src\middleware\bap\activity_message\squad_objective_state.h" />
     <ClInclude Include="src\middleware\content\packages\tables\quest_initialization_reader.h" />
     <ClInclude Include="src\middleware\content\packages\tables\vendor_bundle_reader.h" />
+    <ClInclude Include="src\middleware\content\packages\tables\item_bundle_reader.h" />
+    <ClInclude Include="src\state\build_data\items\item_bundle.h" />
     <ClInclude Include="src\state\build_data\vendors\bundle_catalog.h" />
     <ClInclude Include="src\server\activity\activity_sdk_actor_sequences.h" />
     <ClInclude Include="src\server\activity\activity_sdk_scene_dependencies.h" />
