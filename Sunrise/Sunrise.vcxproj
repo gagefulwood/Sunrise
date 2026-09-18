@@ -1060,6 +1060,7 @@
     <ClCompile Include="src\middleware\content\packages\tables\bubble_state_reader.cpp" />
     <ClCompile Include="src\middleware\content\packages\tables\definition_index_table.cpp" />
     <ClCompile Include="src\middleware\content\packages\tables\item_definition_reader.cpp" />
+    <ClCompile Include="src\middleware\content\packages\tables\item_requirement_reader.cpp" />
     <ClCompile Include="src\middleware\content\packages\tables\region_reader.cpp" />
     <ClCompile Include="src\middleware\content\packages\tables\roster_intersection.cpp" />
     <ClCompile Include="src\middleware\content\packages\tables\scenario_reader.cpp" />
@@ -1874,6 +1875,7 @@
     <ClInclude Include="src\middleware\content\packages\tables\bubble_state_reader.h" />
     <ClInclude Include="src\middleware\content\packages\tables\internal.h" />
     <ClInclude Include="src\middleware\content\packages\tables\items.h" />
+    <ClInclude Include="src\middleware\content\packages\tables\item_requirement_reader.h" />
     <ClInclude Include="src\middleware\content\packages\tables\region_reader.h" />
     <ClInclude Include="src\middleware\content\packages\tables\roster_intersection.h" />
     <ClInclude Include="src\middleware\content\packages\tables\scenario_reader.h" />

@@ -40,6 +40,11 @@ bool find_configured_item_detail(std::uint16_t index,
 }
 } // namespace sunrise::state::build_data
 
+void verify_item_requirements();
+void verify_retained_requirements(std::span<const std::byte> definition,
+                                  std::span<const std::byte> table,
+                                  std::uint8_t matchingClass);
+
 namespace {
 namespace calculation = sunrise::state::equipment::light::calculation;
 using Slot = sunrise::state::account::inventory::EquipmentSlot;
@@ -334,22 +339,30 @@ std::vector<std::byte> fixture(const char* path) {
 
 /**
  * Runs synthetic checks and optionally checks one retained content join.
- * @param argc Argument count, one or four.
- * @param argv Optional item blob, cap table and expected level cap.
+ * @param argc Argument count, one, four or six.
+ * @param argv Optional item, caps, expected cap, then identity table and expected class.
  * @return Zero after every check passes.
  */
 int main(int argc, char** argv) {
     verify_examples();
     verify_exhaustive_choices();
     verify_quality_caps();
-    check(argc == 1 || argc == 4, "optional arguments: item cap-table expected-level-cap");
-    if (argc == 4) {
+    verify_item_requirements();
+    check(argc == 1 || argc == 4 || argc == 6,
+          "optional arguments: item cap-table expected-cap [identity-table class]");
+    if (argc >= 4) {
         float cap = 0;
         check(sunrise::middleware::content::packages::tables::items::read_level_cap(
                   fixture(argv[1]), fixture(argv[2]), cap)
                   && cap == std::strtof(argv[3], nullptr),
               "retained item resolves its expected quality cap");
         std::puts("PASS: retained item quality-cap join");
+    }
+    if (argc == 6) {
+        const auto characterClass = std::strtol(argv[5], nullptr, 10);
+        check(characterClass >= 0 && characterClass <= 3, "expected class range");
+        verify_retained_requirements(
+            fixture(argv[1]), fixture(argv[4]), static_cast<std::uint8_t>(characterClass));
     }
     std::puts(
         "PASS: reward base, legal loadouts, quality caps, cache roundtrip and malformed inputs");

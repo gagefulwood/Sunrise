@@ -1,4 +1,5 @@
-param([string]$ItemDefinition, [string]$QualityCaps, [string]$ExpectedCap)
+param([string]$ItemDefinition, [string]$QualityCaps, [string]$ExpectedCap,
+      [string]$IdentityTable, [string]$ExpectedClass)
 
 $ErrorActionPreference = 'Stop'
 $rewardRoot = Split-Path $PSScriptRoot -Parent
@@ -13,11 +14,14 @@ Push-Location $rewardBuild
 try {
     $rewardSources = @(
         "$rewardRoot/tests/reward_power_tests.cpp",
+        "$rewardRoot/tests/item_requirement_tests.cpp",
+        "$rewardSource/state/build_data/vendors/vendor_expression.cpp",
         "$rewardSource/state/equipment/light/calculation/equipment_light_calculation.cpp",
         "$rewardSource/state/equipment/light/resolution/configured_equipment_light_resolver.cpp",
         "$rewardSource/state/account/inventory/inventory_state.cpp",
         "$rewardSource/state/build_data/cache/records/cache_record_codec.cpp",
         "$rewardSource/middleware/content/packages/tables/item_definition_reader.cpp",
+        "$rewardSource/middleware/content/packages/tables/item_requirement_reader.cpp",
         "$rewardSource/middleware/content/packages/tables/item_appearance_reader.cpp",
         "$rewardSource/middleware/content/packages/tables/definition_index_table.cpp"
     ) | ForEach-Object { '"' + $_ + '"' }
@@ -30,6 +34,12 @@ try {
             throw 'Provide ItemDefinition, QualityCaps and ExpectedCap together.'
         }
         $rewardArguments = @($ItemDefinition, $QualityCaps, $ExpectedCap)
+    }
+    if ($IdentityTable -or $ExpectedClass) {
+        if (-not ($rewardArguments.Count -eq 3 -and $IdentityTable -and $ExpectedClass)) {
+            throw 'IdentityTable and ExpectedClass also require the item and cap arguments.'
+        }
+        $rewardArguments += @($IdentityTable, $ExpectedClass)
     }
     & (Join-Path $rewardBuild 'reward_power_tests.exe') @rewardArguments
     if ($LASTEXITCODE -ne 0) { throw 'Reward Power checks failed.' }
