@@ -460,6 +460,11 @@ bool find_season_pass_package(std::uint32_t, season_pass::Package&) noexcept {
 } // namespace sunrise::state::build_data
 
 namespace sunrise::state {
+/** Owned engram decryption carries no faction reward credit to validate. */
+bool vendor_reward_current(const PendingItemAcquisition& mutation) noexcept {
+    check(mutation.vendorReward.beforeCredits == 0, "unexpected faction reward claim");
+    return mutation.vendorReward.beforeCredits == 0;
+}
 /** The test snapshot reads only its disposable database under the normal save lock. */
 AccountState account_snapshot() noexcept {
     const std::lock_guard lock(store::g_mutex);
