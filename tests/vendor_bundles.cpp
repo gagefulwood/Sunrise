@@ -1,3 +1,4 @@
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -34,7 +35,7 @@ struct Fixture {
     std::array<std::uint32_t, kPieces> items;
 };
 /** Expected sack hashes, sale rows, saved flags and reward-list order from build 86657. */
-constexpr std::array<Fixture, 3> kFixtures{{
+constexpr auto kFixtures = std::to_array<Fixture>({
     {1493877378U,
      165,
      state::CharacterClass::hunter,
@@ -53,7 +54,7 @@ constexpr std::array<Fixture, 3> kFixtures{{
      6400,
      5373,
      {2127474099U, 450844637U, 2337290000U, 2546370410U, 1862324869U}},
-}};
+});
 const Fixture* g_fixture = &kFixtures.front();
 std::size_t g_capacity = kPieces;
 std::uint32_t g_cost{};
@@ -73,8 +74,9 @@ std::string read_text(const std::string& path) {
     std::FILE* file = nullptr;
     check(fopen_s(&file, path.c_str(), "rb") == 0 && file != nullptr, "open SQL resource");
     std::string result;
-    // SQL resources are streamed in 4-KiB chunks.
-    std::array<char, 4096> buffer{};
+    // SQL fixture reads use a fixed 4-KiB buffer.
+    constexpr std::size_t kSqlReadChunkBytes = 4096;
+    std::array<char, kSqlReadChunkBytes> buffer{};
     while (const auto count = std::fread(buffer.data(), 1, buffer.size(), file)) {
         result.append(buffer.data(), count);
     }

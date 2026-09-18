@@ -8,6 +8,8 @@ if (-not $bundleVs) { throw 'Visual Studio C++ tools are required.' }
 $bundleVcVars = Join-Path $bundleVs 'VC/Auxiliary/Build/vcvars64.bat'
 $bundleSource = Join-Path $bundleRoot 'Sunrise/src'
 $bundleSqlite = Join-Path $bundleRoot 'Sunrise/vendor/sqlite'
+# Reserve 8 MiB for stack-local account snapshots and prepared-grant fixtures.
+$bundleStackBytes = 8MB
 $bundleSources = @(
     'tests/vendor_bundles.cpp',
     'Sunrise/src/state/runtime/state_vendor_bundle_runtime.cpp',
@@ -32,7 +34,7 @@ try {
         & cmd.exe /d /s /c "`"$bundleVcVars`" >nul && cl /nologo /O2 /w /TC /c /DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_THREADSAFE=1 `"$bundleSqlite/sqlite3.c`" /Fosqlite3.obj"
         if ($LASTEXITCODE -ne 0) { throw 'SQLite test build failed.' }
     }
-    $bundleCommand = "`"$bundleVcVars`" >nul && cl /nologo /std:c++20 /EHsc /O2 /Gy /W4 /WX /utf-8 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I`"$bundleSource`" /external:I`"$bundleSqlite`" /external:W0 " + ($bundleSources -join ' ') + ' sqlite3.obj /Fevendor_bundles.exe /link /OPT:REF /STACK:8388608'
+    $bundleCommand = "`"$bundleVcVars`" >nul && cl /nologo /std:c++20 /EHsc /O2 /Gy /W4 /WX /utf-8 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I`"$bundleSource`" /external:I`"$bundleSqlite`" /external:W0 " + ($bundleSources -join ' ') + " sqlite3.obj /Fevendor_bundles.exe /link /OPT:REF /STACK:$bundleStackBytes"
     & cmd.exe /d /s /c $bundleCommand
     if ($LASTEXITCODE -ne 0) { throw 'Bundle test build failed.' }
     $bundleScratch = Join-Path $bundleBuild ('bundle-' + [guid]::NewGuid().ToString('N') + '.sqlite3')

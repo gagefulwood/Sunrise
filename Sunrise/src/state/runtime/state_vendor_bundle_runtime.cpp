@@ -28,29 +28,50 @@ struct BundleRule {
     std::array<std::uint32_t, kArmourPieceCount> items;
 };
 
-/** Build-86657 reward lists 786-788 grant arms, chest, class item, head and legs, in that order. */
+/** Build-86657 class bindings name content and saved flag locations, not player-specific values. */
 constexpr std::array<BundleRule, kCharacterCapacity> kBundles{{
-    // Hunter: FLAG[10454] marks the claim; POOL[844] requires FLAG[8451..8455].
-    {1493877378U,
-     165,
-     CharacterClass::hunter,
-     6398,
-     {5261, 5262, 5263, 5264, 5265},
-     {1775707016U, 2805101184U, 2156817213U, 3159052337U, 2877046370U}},
-    // Titan: FLAG[10455] marks the claim; POOL[845] requires FLAG[8529..8533].
-    {4036562374U,
-     166,
-     CharacterClass::titan,
-     6399,
-     {5317, 5318, 5319, 5320, 5321},
-     {2291082292U, 1288683596U, 3987442049U, 1510405477U, 2578820926U}},
-    // Warlock: FLAG[10456] marks the claim; POOL[846] requires FLAG[8607..8611].
-    {2370303981U,
-     167,
-     CharacterClass::warlock,
-     6400,
-     {5373, 5374, 5375, 5376, 5377},
-     {2127474099U, 450844637U, 2337290000U, 2546370410U, 1862324869U}},
+    // Hunter Solstice upgrade wrapper and its Banshee sale row.
+    {.sourceHash = 1493877378U,
+     .saleIndex = 165,
+     .characterClass = CharacterClass::hunter,
+     // FLAG[10454] maps to this account-bank claim row.
+     .claimRow = 6398,
+     // POOL[844] reads FLAG[8451..8455] from these account-bank rows.
+     .requiredRows = {5261, 5262, 5263, 5264, 5265},
+     // Native sack reward list 786, in its authored order.
+     .items = {1775707016U,   // Arms.
+               2805101184U,   // Chest.
+               2156817213U,   // Class item.
+               3159052337U,   // Head.
+               2877046370U}}, // Legs.
+    // Titan Solstice upgrade wrapper and its Banshee sale row.
+    {.sourceHash = 4036562374U,
+     .saleIndex = 166,
+     .characterClass = CharacterClass::titan,
+     // FLAG[10455] maps to this account-bank claim row.
+     .claimRow = 6399,
+     // POOL[845] reads FLAG[8529..8533] from these account-bank rows.
+     .requiredRows = {5317, 5318, 5319, 5320, 5321},
+     // Native sack reward list 787, in its authored order.
+     .items = {2291082292U,   // Arms.
+               1288683596U,   // Chest.
+               3987442049U,   // Class item.
+               1510405477U,   // Head.
+               2578820926U}}, // Legs.
+    // Warlock Solstice upgrade wrapper and its Banshee sale row.
+    {.sourceHash = 2370303981U,
+     .saleIndex = 167,
+     .characterClass = CharacterClass::warlock,
+     // FLAG[10456] maps to this account-bank claim row.
+     .claimRow = 6400,
+     // POOL[846] reads FLAG[8607..8611] from these account-bank rows.
+     .requiredRows = {5373, 5374, 5375, 5376, 5377},
+     // Native sack reward list 788, in its authored order.
+     .items = {2127474099U,   // Arms.
+               450844637U,    // Chest.
+               2337290000U,   // Class item.
+               2546370410U,   // Head.
+               1862324869U}}, // Legs.
 }};
 
 /**
