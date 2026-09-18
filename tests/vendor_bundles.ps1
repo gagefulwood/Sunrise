@@ -13,6 +13,7 @@ $bundleStackBytes = 8MB
 $bundleSources = @(
     'tests/vendor_bundles.cpp',
     'Sunrise/src/state/runtime/state_vendor_bundle_runtime.cpp',
+    'Sunrise/src/state/build_data/vendors/bundle_catalog.cpp',
     'Sunrise/src/state/runtime/state_account_reward_grant_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_acquisition_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_profile_runtime.cpp',
@@ -29,6 +30,16 @@ $bundleSources = @(
 ) | ForEach-Object { '"' + (Join-Path $bundleRoot $_) + '"' }
 Push-Location $bundleBuild
 try {
+    $bundleContentSources = @(
+        'tests/vendor_bundle_content.cpp',
+        'Sunrise/src/middleware/content/packages/tables/vendor_bundle_reader.cpp',
+        'Sunrise/src/middleware/content/packages/tables/definition_index_table.cpp'
+    ) | ForEach-Object { '"' + (Join-Path $bundleRoot $_) + '"' }
+    $bundleContentCommand = "`"$bundleVcVars`" >nul && cl /nologo /std:c++20 /EHsc /O2 /W4 /WX /utf-8 /DWIN32_LEAN_AND_MEAN /DNOMINMAX /I`"$bundleSource`" " + ($bundleContentSources -join ' ') + ' /Fevendor_bundle_content.exe'
+    & cmd.exe /d /s /c $bundleContentCommand
+    if ($LASTEXITCODE -ne 0) { throw 'Bundle content test build failed.' }
+    & (Join-Path $bundleBuild 'vendor_bundle_content.exe')
+    if ($LASTEXITCODE -ne 0) { throw 'Bundle content checks failed.' }
     $bundleSqliteObject = Join-Path $bundleBuild 'sqlite3.obj'
     if (-not (Test-Path -LiteralPath $bundleSqliteObject)) {
         & cmd.exe /d /s /c "`"$bundleVcVars`" >nul && cl /nologo /O2 /w /TC /c /DSQLITE_OMIT_LOAD_EXTENSION /DSQLITE_THREADSAFE=1 `"$bundleSqlite/sqlite3.c`" /Fosqlite3.obj"

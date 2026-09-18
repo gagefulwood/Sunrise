@@ -14,4 +14,7 @@ namespace sunrise::client::content::vendors {
 [[nodiscard]] bool build(const middleware::content::packages::reader::Source& source,
                          middleware::content::packages::reader::Scratch& scratch) noexcept;
 
+[[nodiscard]] bool build_bundles(const middleware::content::packages::reader::Source& source,
+                                 middleware::content::packages::reader::Scratch& scratch) noexcept;
+
 } // namespace sunrise::client::content::vendors

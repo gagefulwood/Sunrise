@@ -9,6 +9,7 @@
 #include "../../../../middleware/content/packages/tables/definition_index_table.h"
 #include "../../../../state/build_data/activities/activity_catalog.h"
 #include "../../../../state/build_data/runtime.h"
+#include "../../../../state/build_data/vendors/bundle_catalog.h"
 #include "../../activity/activity_catalog_build.h"
 #include "../../activity/entity_position_profile_build.h"
 #include "../../hash_names/hash_name_build.h"
@@ -49,6 +50,7 @@ bool ready() noexcept {
     return root_domains_ready() && state::build_data::scenario_layouts_ready()
            && state::build_data::spawn_sets_ready() && state::build_data::hash_names_ready()
            && state::build_data::vendor_catalog_ready()
+           && state::build_data::vendors::bundles::settled()
            && content::activity::entity_position_profiles::ready()
            && (state::build_data::activities::ready()
                || state::build_data::activities::extraction_failed());
@@ -84,6 +86,7 @@ bool build() noexcept {
         (void)content::spawn_sets::build(packageSource, storage.scratch);
         (void)content::hash_names::build(packageSource, storage.scratch);
         (void)content::vendors::build(packageSource, storage.scratch);
+        (void)content::vendors::build_bundles(packageSource, storage.scratch);
         if (ready()) {
             SecureZeroMemory(&keys, sizeof keys);
             return true;

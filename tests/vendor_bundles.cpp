@@ -7,6 +7,7 @@
 #include "core/logging/log.h"
 #include "middleware/datagen/family4/loadout/loadout_resolver.h"
 #include "state/build_data/runtime.h"
+#include "state/build_data/vendors/bundle_catalog.h"
 #include "state/build_data/vendors/vendor_catalog.h"
 #include "state/investment/store_internal.h"
 #include "state/runtime/runtime.h"
@@ -16,6 +17,7 @@ namespace {
 namespace state = sunrise::state;
 namespace store = state::investment::store;
 using Disposition = state::VendorBundleDisposition;
+namespace bundles = state::build_data::vendors::bundles;
 
 /** Synthetic identities and selectors keep the fixture independent of player state. */
 constexpr std::uint64_t kAccount = 1001, kCharacter = 1002;
@@ -91,6 +93,21 @@ void reset(const Fixture& fixture) {
     g_capacity = kPieces;
     g_cost = 0;
     g_missingGear = false;
+    std::array<bundles::Definition, kFixtures.size()> definitions{};
+    for (std::size_t index = 0; index < definitions.size(); ++index) {
+        const auto& expected = kFixtures[index];
+        auto& row = definitions[index];
+        row.sourceHash = expected.wrapper;
+        row.vendorIndex = kVendor;
+        row.saleIndex = expected.sale;
+        row.characterClass = expected.characterClass;
+        row.claimRow = expected.claimRow;
+        for (std::size_t piece = 0; piece < kPieces; ++piece) {
+            row.requiredRows[piece] = static_cast<std::uint16_t>(expected.firstRequiredRow + piece);
+            row.items[piece] = static_cast<std::uint16_t>(kFirstGearIndex + piece);
+        }
+    }
+    check(bundles::replace(definitions), "publish synthetic installed bundles");
     state::AccountState account{};
     account.primarySoid = kAccount;
     account.characterCount = 1;
@@ -168,6 +185,22 @@ void verify() {
               "wrong class refused");
     }
     const auto& fixture = kFixtures.front();
+    reset(fixture);
+    bundles::clear();
+    check(!bundles::settled() && !bundles::ready()
+              && state::prepare_vendor_bundle(kVendor, fixture.sale, pending)
+                     == Disposition::refused,
+          "unextracted wrapper never falls through to acquisition");
+    bundles::unavailable();
+    check(bundles::settled() && !bundles::ready()
+              && state::prepare_vendor_bundle(kVendor, fixture.sale, pending)
+                     == Disposition::refused,
+          "unsupported content settles startup without admitting the wrapper");
+    reset(fixture);
+    prepare(pending);
+    bundles::clear();
+    check(!state::commit_record_reward(pending) && claimed() == 0,
+          "catalog invalidation refuses an earlier prepared grant");
     reset(fixture);
     g_capacity = kPieces - 1;
     check(state::prepare_vendor_bundle(kVendor, fixture.sale, pending) == Disposition::refused

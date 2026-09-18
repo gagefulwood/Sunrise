@@ -4,6 +4,7 @@
 #include <shared_mutex>
 
 #include "../table.h"
+#include "bundle_catalog.h"
 #include "core/threading/srw_lock.h"
 
 namespace sunrise::state::build_data::vendors {
@@ -133,6 +134,7 @@ template <typename Row>
 /** Clears the index, every held definition, and both row banks under the catalog lock. */
 void clear() noexcept {
     const std::lock_guard guard(g_lock);
+    bundles::clear();
     g_index.clear();
     g_definitions.clear();
     g_saleRows.clear();
@@ -186,6 +188,7 @@ bool replace(std::span<const IndexEntry> index,
     const bool storedDefinitions = g_definitions.replace(definitions);
     const bool storedSaleRows = g_saleRows.replace(saleRows);
     const bool storedInstalledRows = g_installedRows.replace(installedRows);
+    bundles::clear();
     return storedIndex && storedDefinitions && storedSaleRows && storedInstalledRows;
 }
 

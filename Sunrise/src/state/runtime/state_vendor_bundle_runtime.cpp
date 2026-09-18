@@ -3,6 +3,7 @@
 #include <algorithm>
 
 #include "../build_data/runtime.h"
+#include "../build_data/vendors/bundle_catalog.h"
 #include "../build_data/vendors/vendor_catalog.h"
 #include "../investment/store_internal.h"
 #include "runtime.h"
@@ -10,98 +11,45 @@
 
 namespace sunrise::state {
 namespace {
-
-/** Solstice upgrade sacks contain one piece for each of the five armour slots. */
-constexpr std::size_t kArmourPieceCount = 5;
-/** Build-86657 vendor hash for Banshee-44. */
-constexpr std::uint32_t kBansheeHash = 672118013U;
-/** Build-86657 Solstice upgrade sales belong to Banshee's Upgrade category. */
-constexpr std::int32_t kUpgradeCategory = 20;
-
-/** Build-matched sack contents and account-bank rows; indices are not wire flag slots. */
-struct BundleRule {
-    std::uint32_t sourceHash;
-    std::uint16_t saleIndex;
-    CharacterClass characterClass;
-    std::uint16_t claimRow;
-    std::array<std::uint16_t, kArmourPieceCount> requiredRows;
-    std::array<std::uint32_t, kArmourPieceCount> items;
-};
-
-/** Build-86657 class bindings name content and saved flag locations, not player-specific values. */
-constexpr std::array<BundleRule, kCharacterCapacity> kBundles{{
-    // Hunter Solstice upgrade wrapper and its Banshee sale row.
-    {.sourceHash = 1493877378U,
-     .saleIndex = 165,
-     .characterClass = CharacterClass::hunter,
-     // FLAG[10454] maps to this account-bank claim row.
-     .claimRow = 6398,
-     // POOL[844] reads FLAG[8451..8455] from these account-bank rows.
-     .requiredRows = {5261, 5262, 5263, 5264, 5265},
-     // Native sack reward list 786, in its authored order.
-     .items = {1775707016U,   // Arms.
-               2805101184U,   // Chest.
-               2156817213U,   // Class item.
-               3159052337U,   // Head.
-               2877046370U}}, // Legs.
-    // Titan Solstice upgrade wrapper and its Banshee sale row.
-    {.sourceHash = 4036562374U,
-     .saleIndex = 166,
-     .characterClass = CharacterClass::titan,
-     // FLAG[10455] maps to this account-bank claim row.
-     .claimRow = 6399,
-     // POOL[845] reads FLAG[8529..8533] from these account-bank rows.
-     .requiredRows = {5317, 5318, 5319, 5320, 5321},
-     // Native sack reward list 787, in its authored order.
-     .items = {2291082292U,   // Arms.
-               1288683596U,   // Chest.
-               3987442049U,   // Class item.
-               1510405477U,   // Head.
-               2578820926U}}, // Legs.
-    // Warlock Solstice upgrade wrapper and its Banshee sale row.
-    {.sourceHash = 2370303981U,
-     .saleIndex = 167,
-     .characterClass = CharacterClass::warlock,
-     // FLAG[10456] maps to this account-bank claim row.
-     .claimRow = 6400,
-     // POOL[846] reads FLAG[8607..8611] from these account-bank rows.
-     .requiredRows = {5373, 5374, 5375, 5376, 5377},
-     // Native sack reward list 788, in its authored order.
-     .items = {2127474099U,   // Arms.
-               450844637U,    // Chest.
-               2337290000U,   // Class item.
-               2546370410U,   // Head.
-               1862324869U}}, // Legs.
-}};
+namespace bundles = build_data::vendors::bundles;
 
 /**
- * Recognizes a supported sale before checking whether its installed contents still match.
+ * Recognize supported wrapper identities even when their extracted payout is unavailable.
  * @param vendorIndex Installed vendor selector.
  * @param saleIndex Requested sale selector.
- * @return Binding for a supported sale, or null for an unrelated request.
+ * @param sourceHash Receives the wrapper identity.
+ * @return True for a supported source; unavailable content must refuse, not fall through.
  */
-const BundleRule* find_rule(std::uint16_t vendorIndex, std::uint16_t saleIndex) noexcept {
+bool supported_sale(std::uint16_t vendorIndex,
+                    std::uint16_t saleIndex,
+                    std::uint32_t& sourceHash) noexcept {
     build_data::vendors::IndexEntry vendor{};
+    build_data::vendors::Definition definition{};
+    build_data::vendors::SaleRow sale{};
+    build_data::items::Definition item{};
     if (!build_data::vendors::find_index(vendorIndex, vendor)
-        || vendor.definitionHash != kBansheeHash) {
-        return nullptr;
+        || !build_data::vendors::find(vendor.definitionHash, definition)
+        || !build_data::vendors::sale_row(definition, saleIndex, sale)
+        || !build_data::find_item_definition_index(sale.itemIndex, item)) {
+        return false;
     }
-    const auto found = std::find_if(kBundles.begin(), kBundles.end(), [&](const auto& rule) {
-        return rule.saleIndex == saleIndex;
-    });
-    return found == kBundles.end() ? nullptr : &*found;
+    sourceHash = item.definitionHash;
+    return std::any_of(bundles::kClaimEffects.begin(),
+                       bundles::kClaimEffects.end(),
+                       [=](const auto& effect) { return effect.itemHash == sourceHash; });
 }
 
 /**
- * Only the matching free wrapper and its saved purchase gates admit an upgrade.
- * @param rule Checked build binding.
+ * Recheck live price and all extracted purchase gates against saved state.
+ * @param rule Installed bundle definition.
  * @param characterClass Selected character class.
  * @param banks Current saved unlocks.
- * @return True when the wrapper, class and every required account flag match.
+ * @return True only while the same free offer remains eligible.
  */
-bool eligible(const BundleRule& rule,
+bool eligible(const bundles::Definition& rule,
               CharacterClass characterClass,
               const unlocks::Table& banks) noexcept {
+    build_data::vendors::IndexEntry index{};
     build_data::vendors::Definition vendor{};
     build_data::vendors::SaleRow sale{};
     build_data::items::Definition item{};
@@ -110,17 +58,16 @@ bool eligible(const BundleRule& rule,
            && std::all_of(rule.requiredRows.begin(),
                           rule.requiredRows.end(),
                           [&](auto row) { return banks.accountFlags[row] == unlocks::kFlagSet; })
-           && build_data::vendors::find(kBansheeHash, vendor)
-           && build_data::vendors::sale_row(vendor, rule.saleIndex, sale)
-           && sale.categoryIndex == kUpgradeCategory && sale.costQuantity == 0
+           && build_data::vendors::find_index(rule.vendorIndex, index)
+           && build_data::vendors::find(index.definitionHash, vendor)
+           && build_data::vendors::sale_row(vendor, rule.saleIndex, sale) && sale.costQuantity == 0
            && build_data::find_item_definition_index(sale.itemIndex, item)
            && item.definitionHash == rule.sourceHash;
 }
-
 } // namespace
 
 /**
- * Prepare all five pieces without writing either inventory or the account claim.
+ * Prepare the installed sack members without writing inventory or the account claim.
  * @param vendorIndex Installed vendor selector.
  * @param saleIndex Requested sale selector.
  * @param mutation Receives the complete grant only on success.
@@ -130,9 +77,14 @@ VendorBundleDisposition prepare_vendor_bundle(std::uint16_t vendorIndex,
                                               std::uint16_t saleIndex,
                                               PendingRecordRewardGrant& mutation) noexcept {
     mutation = {};
-    const auto* rule = find_rule(vendorIndex, saleIndex);
-    if (rule == nullptr) {
+    std::uint32_t sourceHash{};
+    if (!supported_sale(vendorIndex, saleIndex, sourceHash)) {
         return VendorBundleDisposition::notApplicable;
+    }
+    bundles::Definition rule{};
+    if (!bundles::find(sourceHash, rule) || rule.vendorIndex != vendorIndex
+        || rule.saleIndex != saleIndex) {
+        return VendorBundleDisposition::refused;
     }
     const std::lock_guard lock(investment::store::g_mutex);
     const AccountState account = account_snapshot();
@@ -140,23 +92,19 @@ VendorBundleDisposition prepare_vendor_bundle(std::uint16_t vendorIndex,
     unlocks::Table banks{};
     if (!account::valid(account) || selected >= account.characterCount
         || !investment::store::read_unlocks(banks, static_cast<int>(selected))
-        || !eligible(*rule, account.characters[selected].characterClass, banks)) {
+        || !eligible(rule, account.characters[selected].characterClass, banks)) {
         return VendorBundleDisposition::refused;
     }
-    std::array<DirectRecordReward, kArmourPieceCount> rewards{};
+    std::array<DirectRecordReward, bundles::kPieceCount> rewards{};
     for (std::size_t index = 0; index < rewards.size(); ++index) {
-        build_data::items::Definition item{};
-        if (!build_data::find_item_definition_hash(rule->items[index], item)) {
-            return VendorBundleDisposition::refused;
-        }
-        rewards[index] = {item.definitionIndex, 1};
+        rewards[index] = {rule.items[index], 1};
     }
     if (!prepare_record_reward_grant(rewards, kUnclaimedRecordIndex, mutation)) {
         mutation = {};
         return VendorBundleDisposition::refused;
     }
     mutation.vendorBundle = VendorBundleClaim{
-        rule->sourceHash, vendorIndex, saleIndex, banks.accountFlags[rule->claimRow]};
+        rule.sourceHash, vendorIndex, saleIndex, banks.accountFlags[rule.claimRow]};
     std::uint16_t claimRow{};
     if (!vendor_bundle_claim_row(mutation, banks, claimRow)) {
         mutation = {};
@@ -166,7 +114,7 @@ VendorBundleDisposition prepare_vendor_bundle(std::uint16_t vendorIndex,
 }
 
 /**
- * Recheck the exact five-piece grant before preview or commit can mark its source claimed.
+ * Recheck the installed payout before preview or commit can mark its source claimed.
  * @param mutation Prepared rewards and source sale.
  * @param banks Current saved unlocks.
  * @param claimRow Receives the account claim row only on success.
@@ -180,22 +128,23 @@ bool vendor_bundle_claim_row(const PendingRecordRewardGrant& mutation,
         return false;
     }
     const auto& claim = *mutation.vendorBundle;
-    const auto* rule = find_rule(claim.vendorIndex, claim.saleIndex);
-    if (rule == nullptr || claim.sourceHash != rule->sourceHash
-        || mutation.rewardCount != rule->items.size()
-        || claim.beforeClaim != banks.accountFlags[rule->claimRow]
-        || !eligible(*rule, mutation.beforeCharacter.characterClass, banks)) {
+    bundles::Definition rule{};
+    if (!bundles::find(claim.sourceHash, rule) || rule.vendorIndex != claim.vendorIndex
+        || rule.saleIndex != claim.saleIndex || mutation.rewardCount != rule.items.size()
+        || claim.beforeClaim != banks.accountFlags[rule.claimRow]
+        || !eligible(rule, mutation.beforeCharacter.characterClass, banks)) {
         return false;
     }
-    for (std::size_t index = 0; index < rule->items.size(); ++index) {
+    for (std::size_t index = 0; index < rule.items.size(); ++index) {
+        build_data::items::Definition item{};
         const auto& reward = mutation.rewards[index];
-        if (reward.definitionHash != rule->items[index] || reward.quantity != 1
+        if (!build_data::find_item_definition_index(rule.items[index], item)
+            || reward.definitionHash != item.definitionHash || reward.quantity != 1
             || reward.kind != RecordRewardKind::characterInstance) {
             return false;
         }
     }
-    claimRow = rule->claimRow;
+    claimRow = rule.claimRow;
     return true;
 }
-
 } // namespace sunrise::state
