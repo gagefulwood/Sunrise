@@ -12,6 +12,13 @@
 #include "state/equipment/light/calculation/equipment_light_calculation.h"
 #include "state/equipment/light/resolution/configured_equipment_light_resolver.h"
 
+namespace fixture_catalog {
+/** One base item and two selectable plugs cover default versus authored socket resolution. */
+constexpr std::size_t kRowCount = 3;
+std::array<sunrise::state::build_data::items::details::Definition, kRowCount> rows{};
+bool enabled{};
+} // namespace fixture_catalog
+
 namespace sunrise::state {
 /** This equipment-only fixture has no seasonal Artifact bonus. */
 std::uint16_t artifact_power_bonus() noexcept {
@@ -23,7 +30,27 @@ namespace sunrise::state::build_data {
 /** Synthetic lookup keeps the real Power resolver independent of installed content. */
 bool find_item_definition_hash(std::uint32_t hash, items::Definition& definition) noexcept {
     definition = {};
+    if (fixture_catalog::enabled) {
+        for (const auto& row : fixture_catalog::rows) {
+            if (row.definitionHash == hash) {
+                definition.definitionHash = hash;
+                definition.definitionIndex = row.definitionIndex;
+                return true;
+            }
+        }
+        return false;
+    }
     definition.definitionHash = hash;
+    return true;
+}
+/** Reads a native-default plug from the synthetic catalog used by socket tests. */
+bool find_item_definition_index(std::uint16_t index, items::Definition& definition) noexcept {
+    definition = {};
+    if (!fixture_catalog::enabled || index >= fixture_catalog::rows.size()) {
+        return false;
+    }
+    definition.definitionIndex = index;
+    definition.definitionHash = fixture_catalog::rows[index].definitionHash;
     return true;
 }
 /** One fixture helmet carries a quality cap below its stored item level. */
@@ -33,6 +60,13 @@ bool find_configured_item_detail(std::uint16_t index,
     constexpr std::int8_t kHelmetSlot = 1;
     constexpr float kLevelCap = 106;
     definition = {};
+    if (fixture_catalog::enabled) {
+        if (index >= fixture_catalog::rows.size()) {
+            return false;
+        }
+        definition = fixture_catalog::rows[index];
+        return true;
+    }
     definition.definitionIndex = index;
     definition.equipmentSlot = kHelmetSlot;
     definition.levelCap = kLevelCap;
@@ -335,6 +369,92 @@ std::vector<std::byte> fixture(const char* path) {
     check(count == bytes.size() && closed == 0, "fixture read and close");
     return bytes;
 }
+
+/** @param context Unused. @param slot Synthetic selector. @param logical Receives its value. */
+bool predicate_flag(void* context, std::uint16_t slot, std::uint8_t& logical) noexcept {
+    (void)context;
+    /** Fixture slot zero is active, slot one inactive, and any other slot unknown. */
+    if (slot > 1) {
+        return false;
+    }
+    logical = slot == 0 ? sunrise::state::build_data::vendors::kFlagActive : 0;
+    return true;
+}
+
+/** @param context Unused. @param slot Unused. @param value Unused; this fixture has no values. */
+bool predicate_value(void* context, std::uint16_t slot, std::int32_t& value) noexcept {
+    (void)context;
+    (void)slot;
+    (void)value;
+    return false;
+}
+
+/** Checks actual selected sockets, empty lanes, missing metadata and shared base/plug refusal. */
+void verify_selected_plugs() {
+    namespace state = sunrise::state;
+    namespace details = state::build_data::items::details;
+    namespace expressions = state::build_data::vendors;
+    namespace inventory = state::account::inventory;
+    namespace resolution = state::equipment::light::resolution;
+    /** Synthetic hashes are distinct from catalog indices; no content policy is encoded here. */
+    constexpr std::uint32_t kFirstHash = 100;
+    fixture_catalog::rows = {};
+    for (std::size_t index = 0; index < fixture_catalog::rows.size(); ++index) {
+        auto& row = fixture_catalog::rows[index];
+        row.definitionIndex = static_cast<std::uint16_t>(index);
+        row.definitionHash = kFirstHash + static_cast<std::uint32_t>(index);
+        row.equipRequirements.available = true;
+        row.plugEquipRequirements.available = true;
+    }
+    auto& base = fixture_catalog::rows[0];
+    base.ordinarySocketState = details::OrdinarySocketState::present;
+    base.ordinarySocketCount = 1;
+    base.initialPlugIndices[0] = 1;
+    auto& blocked = fixture_catalog::rows[1].plugEquipRequirements;
+    blocked.count = 1;
+    blocked.instructions[0] = {expressions::Opcode::flag, 1};
+    blocked.ends[0] = true;
+    const expressions::Inputs inputs{predicate_flag, predicate_value, nullptr};
+    inventory::Item item{};
+    item.definitionHash = base.definitionHash;
+    fixture_catalog::enabled = true;
+    bool result = true;
+    check(resolution::equip_predicates(item, inputs, result) && !result,
+          "native-default installed plug can block base-item eligibility");
+    item.sockets.policy = inventory::SocketPolicy::authored;
+    item.sockets.plugCount = 1;
+    item.sockets.plugs[0] = fixture_catalog::rows[2].definitionHash;
+    check(resolution::equip_predicates(item, inputs, result) && result,
+          "authored allowed plug replaces blocked default; unused alternatives ignored");
+    item.sockets.plugs[0].reset();
+    check(resolution::equip_predicates(item, inputs, result) && result,
+          "explicitly empty authored lane does not fall back to default");
+    item.sockets.plugs[0] = fixture_catalog::rows[1].definitionHash;
+    blocked.instructions[0].operand = 2;
+    check(!resolution::equip_predicates(item, inputs, result) && !result,
+          "unknown installed-plug input refuses instead of dropping plug");
+    item.sockets.plugs[0] = kFirstHash + static_cast<std::uint32_t>(fixture_catalog::kRowCount);
+    check(!resolution::equip_predicates(item, inputs, result) && !result,
+          "missing selected-plug mapping refuses");
+    item.sockets.plugs[0] = fixture_catalog::rows[2].definitionHash;
+    fixture_catalog::rows[2].plugEquipRequirements.available = false;
+    check(!resolution::equip_predicates(item, inputs, result) && !result,
+          "unavailable selected-plug requirements refuse");
+    fixture_catalog::rows[2].plugEquipRequirements.available = true;
+    base.equipRequirements.available = false;
+    check(!resolution::equip_predicates(item, inputs, result) && !result,
+          "unavailable base-item requirements refuse");
+    base.equipRequirements.available = true;
+    item.sockets.plugCount = 0;
+    check(!resolution::equip_predicates(item, inputs, result) && !result,
+          "malformed authored sockets refuse");
+    item.sockets = {};
+    base.initialPlugIndices[0] = details::kUnavailableItemIndex;
+    check(resolution::equip_predicates(item, inputs, result) && result,
+          "empty native-default lane needs no plug metadata");
+    fixture_catalog::enabled = false;
+    std::puts("PASS: State resolves native-default and authored selected-plug requirements");
+}
 } // namespace
 
 /**
@@ -348,6 +468,7 @@ int main(int argc, char** argv) {
     verify_exhaustive_choices();
     verify_quality_caps();
     verify_item_requirements();
+    verify_selected_plugs();
     check(argc == 1 || argc == 4 || argc == 6,
           "optional arguments: item cap-table expected-cap [identity-table class]");
     if (argc >= 4) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -32,6 +33,21 @@ struct Instruction {
     std::uint16_t operand{};
 };
 
+/** Cached equip groups hold at most 128 instructions in total; wider groups stay unavailable. */
+inline constexpr std::size_t kExpressionGroupCapacity = 128;
+
+/** A complete AND-group; unavailable differs from an available group with no requirements. */
+struct ExpressionGroup {
+    bool available{};
+    std::uint16_t count{};
+    std::array<Instruction, kExpressionGroupCapacity> instructions{};
+    /** True ends one expression; the next instruction starts a fresh evaluation stack. */
+    std::array<bool, kExpressionGroupCapacity> ends{};
+};
+
+/** @param group Cached group. @return True for bounded instructions and zero unused storage. */
+[[nodiscard]] bool valid(const ExpressionGroup& group) noexcept;
+
 /** Reads one flag's logical byte. Returns false when the slot has no value. */
 using FlagReader = bool (*)(void* context, std::uint16_t slot, std::uint8_t& logical) noexcept;
 /** Reads one progression value. Returns false when the slot has no value. */
@@ -54,5 +70,15 @@ struct Inputs {
  */
 [[nodiscard]] bool
 evaluate(std::span<const Instruction> program, const Inputs& inputs, bool& result) noexcept;
+
+/**
+ * Evaluates every expression in a cached group without dropping unreadable predicates.
+ * @param group Available group, including an explicitly empty one.
+ * @param inputs Fully resolved server flag and value readers.
+ * @param result Receives the AND of the expressions; cleared on refusal.
+ * @return False for unavailable or malformed groups, or any unreadable expression.
+ */
+[[nodiscard]] bool
+evaluate(const ExpressionGroup& group, const Inputs& inputs, bool& result) noexcept;
 
 } // namespace sunrise::state::build_data::vendors

@@ -65,20 +65,16 @@ read(std::span<const std::byte> blob, std::size_t offset, Value& value) noexcept
  * Decodes one bounded program without narrowing unknown opcodes or wide operands.
  * @param definition Whole serialized definition.
  * @param descriptor Expression descriptor offset.
- * @param inputs Fully resolved server inputs.
- * @param result Receives the expression result only on successful evaluation.
- * @return False for unsupported content or an unreadable input.
+ * @param group Staged group to append to; use only after the whole group succeeds.
+ * @return False for unsupported content or insufficient remaining capacity.
  */
-[[nodiscard]] bool evaluate_program(std::span<const std::byte> definition,
-                                    std::size_t descriptor,
-                                    const expressions::Inputs& inputs,
-                                    bool& result) noexcept {
+[[nodiscard]] bool read_program(std::span<const std::byte> definition,
+                                std::size_t descriptor,
+                                expressions::ExpressionGroup& group) noexcept {
     Array array{};
-    std::array<expressions::Instruction, static_cast<std::size_t>(kNodeExpressionCapacity)>
-        instructions{};
     if (!checked_array(
             definition, descriptor, kUnlockInstructionStride, kExpressionInstructionClass, array)
-        || array.count == 0 || array.count > instructions.size()) {
+        || array.count == 0 || array.count > group.instructions.size() - group.count) {
         return false;
     }
     for (std::size_t index = 0; index < array.count; ++index) {
@@ -106,27 +102,26 @@ read(std::span<const std::byte> blob, std::size_t offset, Value& value) noexcept
         default:
             return false;
         }
-        instructions[index] = {operation, static_cast<std::uint16_t>(operand)};
+        group.instructions[group.count++] = {operation, static_cast<std::uint16_t>(operand)};
     }
-    return expressions::evaluate(
-        std::span(instructions).first(static_cast<std::size_t>(array.count)), inputs, result);
+    group.ends[group.count - 1] = true;
+    return true;
 }
 
 } // namespace
 
 /**
- * Evaluates a whole equip group without treating an unsupported program as a failed predicate.
+ * Decodes a whole group without publishing partial requirements.
  * @param definition Whole base-item or selected-plug definition.
  * @param source Which definition block holds the requirements.
- * @param inputs Fully resolved server inputs, with unknown reads refused.
- * @param satisfied Receives the AND of every program; cleared on any refusal.
- * @return True only when the complete group was evaluated.
+ * @param output Receives the complete group; reset to unavailable on refusal.
+ * @return True only when every expression fits the supported representation.
  */
-bool evaluate_equip_requirements(std::span<const std::byte> definition,
-                                 EquipRequirementSource source,
-                                 const expressions::Inputs& inputs,
-                                 bool& satisfied) noexcept {
-    satisfied = false;
+bool read_equip_requirements(std::span<const std::byte> definition,
+                             EquipRequirementSource source,
+                             expressions::ExpressionGroup& output) noexcept {
+    output = {};
+    expressions::ExpressionGroup staged{};
     std::size_t field = 0, groupOffset = 0;
     switch (source) {
     case EquipRequirementSource::item:
@@ -144,7 +139,7 @@ bool evaluate_equip_requirements(std::span<const std::byte> definition,
         return false;
     }
     if (relative == 0) {
-        satisfied = true;
+        output.available = true;
         return true;
     }
     if (relative < -static_cast<std::int64_t>(field)
@@ -163,19 +158,33 @@ bool evaluate_equip_requirements(std::span<const std::byte> definition,
                        group)) {
         return false;
     }
-    bool complete = true;
     for (std::size_t index = 0; index < group.count; ++index) {
-        bool result = false;
-        if (!evaluate_program(definition,
-                              group.dataOffset + index * kUnlockExpressionFieldSize,
-                              inputs,
-                              result)) {
+        if (!read_program(
+                definition, group.dataOffset + index * kUnlockExpressionFieldSize, staged)) {
             return false;
         }
-        complete = complete && result;
     }
-    satisfied = complete;
+    staged.available = true;
+    output = staged;
     return true;
+}
+
+/**
+ * Evaluates decoded content through the same group evaluator used by cached State details.
+ * @param definition Whole base-item or selected-plug definition.
+ * @param source Which definition block holds the requirements.
+ * @param inputs Fully resolved server inputs, with unknown reads refused.
+ * @param satisfied Receives the complete AND result; cleared on refusal.
+ * @return True only when the group was decoded and every expression evaluated.
+ */
+bool evaluate_equip_requirements(std::span<const std::byte> definition,
+                                 EquipRequirementSource source,
+                                 const expressions::Inputs& inputs,
+                                 bool& satisfied) noexcept {
+    satisfied = false;
+    expressions::ExpressionGroup group{};
+    return read_equip_requirements(definition, source, group)
+           && expressions::evaluate(group, inputs, satisfied);
 }
 
 /**

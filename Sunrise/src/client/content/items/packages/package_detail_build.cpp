@@ -3,6 +3,7 @@
 #include <cstring>
 #include <optional>
 
+#include "../../../../middleware/content/packages/tables/item_requirement_reader.h"
 #include "../../../../state/account/account_state.h"
 #include "../../../../state/runtime/runtime.h"
 #include "internal.h"
@@ -220,6 +221,13 @@ bool build_detail(const DetailSource& source,
     }
     item.definitionHash = indexRow.definitionHash;
     detail = to_detail(item);
+    // Unsupported prerequisites block eligibility, not ordinary inventory materialization.
+    (void)tables::items::read_equip_requirements(
+        *source.definition, tables::items::EquipRequirementSource::item, detail.equipRequirements);
+    (void)tables::items::read_equip_requirements(
+        *source.definition,
+        tables::items::EquipRequirementSource::installedPlug,
+        detail.plugEquipRequirements);
     return tables::items::read_level_cap(*source.definition, source.qualityCaps, detail.levelCap);
 }
 

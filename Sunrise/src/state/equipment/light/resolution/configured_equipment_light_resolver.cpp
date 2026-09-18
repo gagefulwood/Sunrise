@@ -109,6 +109,74 @@ resolve_item(const authored::Item& item, std::size_t& nativeSlot, ItemScore& ite
 } // namespace
 
 /**
+ * Checks the base and selected plugs without substituting a plug pool or native defaults.
+ * @param item Owned item whose sockets are read without mutation.
+ * @param inputs Resolved server inputs; unreadable values must fail.
+ * @param satisfied Receives the complete predicate result, or false on refusal.
+ * @return True only when all required metadata and state could be evaluated.
+ */
+bool equip_predicates(const authored::Item& item,
+                      const build_data::vendors::Inputs& inputs,
+                      bool& satisfied) noexcept {
+    satisfied = false;
+    build_items::Definition definition{};
+    build_details::Definition detail{};
+    if (!authored::valid(item.sockets)
+        || !build_data::find_item_definition_hash(item.definitionHash, definition)
+        || definition.definitionHash != item.definitionHash
+        || !build_data::find_configured_item_detail(definition.definitionIndex, detail)
+        || detail.definitionIndex != definition.definitionIndex
+        || detail.definitionHash != item.definitionHash
+        || detail.ordinarySocketCount > detail.initialPlugIndices.size()) {
+        return false;
+    }
+    const bool selected = item.sockets.policy == authored::SocketPolicy::authored;
+    if ((selected && item.sockets.plugCount != detail.ordinarySocketCount)
+        || (detail.ordinarySocketState != build_details::OrdinarySocketState::present
+            && (detail.ordinarySocketState != build_details::OrdinarySocketState::absent
+                || detail.ordinarySocketCount != 0))) {
+        return false;
+    }
+    bool complete = false;
+    if (!build_data::vendors::evaluate(detail.equipRequirements, inputs, complete)) {
+        return false;
+    }
+    for (std::size_t lane = 0; lane < detail.ordinarySocketCount; ++lane) {
+        build_items::Definition plug{};
+        if (selected) {
+            const auto& hash = item.sockets.plugs[lane];
+            if (!hash.has_value()) {
+                continue;
+            }
+            if (!build_data::find_item_definition_hash(*hash, plug)
+                || plug.definitionHash != *hash) {
+                return false;
+            }
+        } else {
+            const auto index = detail.initialPlugIndices[lane];
+            if (index == build_details::kUnavailableItemIndex) {
+                continue;
+            }
+            if (!build_data::find_item_definition_index(index, plug)
+                || plug.definitionIndex != index) {
+                return false;
+            }
+        }
+        build_details::Definition plugDetail{};
+        bool allowed = false;
+        if (!build_data::find_configured_item_detail(plug.definitionIndex, plugDetail)
+            || plugDetail.definitionIndex != plug.definitionIndex
+            || plugDetail.definitionHash != plug.definitionHash
+            || !build_data::vendors::evaluate(plugDetail.plugEquipRequirements, inputs, allowed)) {
+            return false;
+        }
+        complete = complete && allowed;
+    }
+    satisfied = complete;
+    return true;
+}
+
+/**
  * Finds authored equipment in the installed item and detail maps, then computes light from the
  * authored item levels.
  */

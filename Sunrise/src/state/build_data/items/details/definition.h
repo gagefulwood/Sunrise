@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "../../vendors/vendor_expression.h"
+
 namespace sunrise::state::build_data::items::details {
 
 /** Detail rows. The installed build carries 15,424 items, so this is the bound above it. */
@@ -116,6 +118,9 @@ struct Definition {
     std::array<RenderOverride, kRenderOverrideCapacity> renderOverrides{};
     /** First quality-version cap in item levels; zero means no declared cap. */
     float levelCap{};
+    /** Unavailable groups must refuse eligibility, not act as empty requirements. */
+    vendors::ExpressionGroup equipRequirements{};
+    vendors::ExpressionGroup plugEquipRequirements{};
 };
 
 } // namespace sunrise::state::build_data::items::details

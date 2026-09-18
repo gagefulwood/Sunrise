@@ -31,7 +31,7 @@ namespace sunrise::state::build_data::cache::records {
 /** These 8 ASCII bytes mark a Sunrise build-data file. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', 'E', 'B'};
 /** Bump when stored layouts or extracted values change; other versions are rebuilt. */
-inline constexpr std::uint32_t kCacheFormatVersion = 68;
+inline constexpr std::uint32_t kCacheFormatVersion = 69;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -200,6 +200,15 @@ struct MaterialRequirementSetRecord {
         requirements{};
 };
 
+/** Fixed-width expression storage; booleans are encoded as bytes, never native bool storage. */
+struct ExpressionGroupRecord {
+    std::uint8_t available{};
+    std::uint16_t count{};
+    std::array<std::uint8_t, vendors::kExpressionGroupCapacity> opcodes{};
+    std::array<std::uint16_t, vendors::kExpressionGroupCapacity> operands{};
+    std::array<std::uint8_t, vendors::kExpressionGroupCapacity> ends{};
+};
+
 /** Disk form of the supported item fields instance generation uses. */
 struct ItemDetailRecord {
     std::uint16_t definitionIndex{};
@@ -229,6 +238,8 @@ struct ItemDetailRecord {
     std::array<std::uint16_t, items::details::kRenderOverrideCapacity> overrideValues{};
     /** Zero denotes no declared quality cap; other values are positive item levels. */
     float levelCap{};
+    ExpressionGroupRecord equipRequirements{};
+    ExpressionGroupRecord plugEquipRequirements{};
 };
 
 /** Disk form of one exact item/lane-to-deduplicated-pool rule. */
@@ -663,9 +674,13 @@ static_assert(sizeof(MaterialRequirementSetRecord)
               == sizeof(std::uint32_t) + sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t)
                      + material_requirements::kRequirementCapacity
                            * sizeof(MaterialRequirementRecord));
+static_assert(sizeof(ExpressionGroupRecord)
+              == sizeof(std::uint8_t) + sizeof(std::uint16_t)
+                     + vendors::kExpressionGroupCapacity
+                           * (2 * sizeof(std::uint8_t) + sizeof(std::uint16_t)));
 static_assert(sizeof(ItemDetailRecord)
               == 7 * sizeof(std::uint16_t) + 8 * sizeof(std::uint8_t) + sizeof(std::int32_t)
-                     + sizeof(std::uint32_t) + sizeof(float)
+                     + sizeof(std::uint32_t) + sizeof(float) + 2 * sizeof(ExpressionGroupRecord)
                      + 2 * items::details::kInitialPlugCapacity * sizeof(std::uint16_t)
                      + items::details::kStatCapacity * (sizeof(std::uint8_t) + sizeof(std::int32_t))
                      + items::details::kSandboxPerkCapacity * sizeof(std::uint16_t)

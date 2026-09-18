@@ -79,6 +79,8 @@ static_assert(kDefinitionCapacity < kEmptyLookupRow);
 [[nodiscard]] bool definition_valid(const Definition& definition) noexcept {
     return definition.bucketId != items::kUnresolvedBucketId && definition.maxStackSize > 0
            && std::isfinite(definition.levelCap) && definition.levelCap >= 0
+           && vendors::valid(definition.equipRequirements)
+           && vendors::valid(definition.plugEquipRequirements)
            && instance_state_valid(definition.instancedDefinitionState)
            && equipment_slot_valid(definition) && ordinary_sockets_valid(definition);
 }

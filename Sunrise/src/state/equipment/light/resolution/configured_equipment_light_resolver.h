@@ -3,9 +3,22 @@
 #include <cstddef>
 
 #include "../../../account/account_state.h"
+#include "../../../build_data/vendors/vendor_expression.h"
 #include "../definition.h"
 
 namespace sunrise::state::equipment::light::resolution {
+
+/**
+ * Evaluates cached equip predicates for an owned item and its actual selected plugs.
+ * @param item Owned item with either native-default or authored socket selections.
+ * @param inputs Fully resolved server flags and values for the intended recipient.
+ * @param satisfied Receives the AND result; cleared on any refusal.
+ * @return False for missing metadata, unknown state or invalid socket selections.
+ * @note This checks expression predicates, not progression-level requirements or reward policy.
+ */
+[[nodiscard]] bool equip_predicates(const account::inventory::Item& item,
+                                    const build_data::vendors::Inputs& inputs,
+                                    bool& satisfied) noexcept;
 
 /**
  * Finds authored equipment in the installed item and detail maps, then computes light from the

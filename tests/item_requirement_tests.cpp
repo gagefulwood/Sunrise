@@ -8,6 +8,7 @@
 #include <span>
 
 #include "middleware/content/packages/tables/item_requirement_reader.h"
+#include "state/build_data/cache/records/codec.h"
 
 namespace {
 namespace items = sunrise::middleware::content::packages::tables::items;
@@ -225,6 +226,62 @@ void verify_identity() {
           "truncated flag slot refused");
 }
 
+/** Checks that caches preserve unknown versus empty and never publish a partial group. */
+void verify_cached_groups() {
+    namespace details = sunrise::state::build_data::items::details;
+    namespace cache = sunrise::state::build_data::cache::records;
+    details::Definition detail{}, restored{};
+    cache::ItemDetailRecord record{};
+    State state{};
+    const expressions::Inputs inputs{flag, value, &state};
+    bool result = true;
+    check(cache::encode(detail, record) && cache::decode(record, restored)
+              && !expressions::evaluate(restored.equipRequirements, inputs, result) && !result,
+          "unavailable group survives cache without becoming an empty pass");
+    const auto item = definition(Source::item);
+    const auto plug = definition(Source::installedPlug);
+    check(items::read_equip_requirements(item, Source::item, detail.equipRequirements)
+              && items::read_equip_requirements(
+                  plug, Source::installedPlug, detail.plugEquipRequirements),
+          "both groups decode for publication");
+    check(cache::encode(detail, record) && cache::decode(record, restored)
+              && expressions::evaluate(restored.equipRequirements, inputs, result) && result
+              && expressions::evaluate(restored.plugEquipRequirements, inputs, result) && result,
+          "both cached groups retain every program boundary");
+    const auto good = record;
+    state.lockKnown = false;
+    check(!expressions::evaluate(restored.equipRequirements, inputs, result) && !result,
+          "unknown flag under cached NOT still refuses");
+    record.equipRequirements.available = 2;
+    check(!cache::decode(record, restored), "invalid cache availability byte refused");
+    record = good;
+    record.equipRequirements.ends[0] = 2;
+    check(!cache::decode(record, restored), "invalid cache boundary byte refused");
+    record = good;
+    record.equipRequirements.ends[record.equipRequirements.count - 1] = 0;
+    check(!cache::decode(record, restored), "partial final expression refused");
+    record = good;
+    record.equipRequirements.opcodes.back() = static_cast<std::uint8_t>(expressions::Opcode::flag);
+    check(!cache::decode(record, restored), "nonzero unused cache instructions refused");
+    record = good;
+    record.plugEquipRequirements.available = 0;
+    check(!cache::decode(record, restored), "unavailable group cannot retain instructions");
+    record = good;
+    record.equipRequirements.count =
+        static_cast<std::uint16_t>(expressions::kExpressionGroupCapacity + 1);
+    check(!cache::decode(record, restored), "cached count overflow refused");
+    auto bad = item;
+    put(bad, kFirstProgramHeader + kProgramSpacing + 16, std::uint32_t{257});
+    check(!items::read_equip_requirements(bad, Source::item, detail.equipRequirements)
+              && !detail.equipRequirements.available && detail.equipRequirements.count == 0
+              && expressions::valid(detail.equipRequirements),
+          "failed later program clears earlier partial extraction");
+    detail.equipRequirements.available = true;
+    check(cache::encode(detail, record) && cache::decode(record, restored)
+              && expressions::evaluate(restored.equipRequirements, {}, result) && result,
+          "explicitly empty cached group needs no state reader");
+}
+
 /** Retained-content checks isolate the identity layer; all other sources are synthetic zero. */
 struct IdentityInputs {
     std::span<const std::byte> table;
@@ -244,6 +301,7 @@ bool identity_flag(void* context, std::uint16_t slot, std::uint8_t& logical) noe
 void verify_item_requirements() {
     verify_groups();
     verify_identity();
+    verify_cached_groups();
     std::puts(
         "PASS: equip groups, selected-plug groups, unknown refusal and identity-layer reader");
 }
@@ -260,6 +318,12 @@ void verify_retained_requirements(std::span<const std::byte> definition,
     /** Native playable classes/races are zero through two; class 3 denotes neutral gear. */
     constexpr std::uint8_t kIdentityCount = 3;
     check(matchingClass <= kIdentityCount, "fixture class range");
+    namespace cache = sunrise::state::build_data::cache::records;
+    sunrise::state::build_data::items::details::Definition detail{}, restored{};
+    cache::ItemDetailRecord record{};
+    check(items::read_equip_requirements(definition, Source::item, detail.equipRequirements)
+              && cache::encode(detail, record) && cache::decode(record, restored),
+          "retained content survives item-detail cache roundtrip");
     for (std::uint8_t characterClass = 0; characterClass < kIdentityCount; ++characterClass) {
         for (std::uint8_t race = 0; race < kIdentityCount; ++race) {
             IdentityInputs identity{table, characterClass, race};
@@ -270,6 +334,11 @@ void verify_retained_requirements(std::span<const std::byte> definition,
                     && satisfied
                            == (matchingClass == kIdentityCount || matchingClass == characterClass),
                 "retained gear matches expected class under isolated identity inputs");
+            check(
+                expressions::evaluate(restored.equipRequirements, inputs, satisfied)
+                    && satisfied
+                           == (matchingClass == kIdentityCount || matchingClass == characterClass),
+                "cached retained gear preserves class result");
         }
     }
     std::puts("PASS: retained gear/identity join across nine class/race inputs (isolated layer)");

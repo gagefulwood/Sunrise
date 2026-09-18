@@ -96,6 +96,42 @@ step(const Instruction& instruction, const Inputs& inputs, Stack& stack) noexcep
 
 } // namespace
 
+/**
+ * Validates cached instruction kinds, expression boundaries and canonical unused storage.
+ * @param group Candidate cached group.
+ * @return False for unsupported instructions or a partial final expression.
+ */
+bool valid(const ExpressionGroup& group) noexcept {
+    if (group.count > group.instructions.size() || (!group.available && group.count != 0)
+        || (group.count != 0 && !group.ends[group.count - 1])) {
+        return false;
+    }
+    for (std::size_t index = 0; index < group.instructions.size(); ++index) {
+        const auto& instruction = group.instructions[index];
+        if (index >= group.count) {
+            if (instruction.opcode != Opcode{} || instruction.operand != 0 || group.ends[index]) {
+                return false;
+            }
+            continue;
+        }
+        switch (instruction.opcode) {
+        case Opcode::flag:
+        case Opcode::loadValue:
+        case Opcode::constant:
+            break;
+        case Opcode::logicalNot:
+        case Opcode::lessThan:
+            if (instruction.operand != 0) {
+                return false;
+            }
+            break;
+        default:
+            return false;
+        }
+    }
+    return true;
+}
+
 /** Evaluates one expression program. */
 bool evaluate(std::span<const Instruction> program, const Inputs& inputs, bool& result) noexcept {
     result = false;
@@ -113,6 +149,37 @@ bool evaluate(std::span<const Instruction> program, const Inputs& inputs, bool& 
         return false;
     }
     result = final.boolean;
+    return true;
+}
+
+/**
+ * Evaluates cached programs with independent stacks and a shared set of resolved state inputs.
+ * @param group Parsed group, not an unavailable placeholder.
+ * @param inputs Flag and value readers; unknown reads must fail.
+ * @param result Receives the full AND result, or false on refusal.
+ * @return True only when every expression evaluated successfully.
+ */
+bool evaluate(const ExpressionGroup& group, const Inputs& inputs, bool& result) noexcept {
+    result = false;
+    if (!group.available || !valid(group)) {
+        return false;
+    }
+    bool satisfied = true;
+    std::size_t start = 0;
+    for (std::size_t index = 0; index < group.count; ++index) {
+        if (!group.ends[index]) {
+            continue;
+        }
+        bool expression = false;
+        if (!evaluate(std::span(group.instructions).subspan(start, index + 1 - start),
+                      inputs,
+                      expression)) {
+            return false;
+        }
+        satisfied = satisfied && expression;
+        start = index + 1;
+    }
+    result = satisfied;
     return true;
 }
 

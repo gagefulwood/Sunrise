@@ -10,6 +10,57 @@ namespace {
 /** Cache padding fields are always written as zero. */
 constexpr unsigned int kReservedFieldValue = 0;
 
+/**
+ * Encodes a valid group without copying native padding or bool representations.
+ * @param group Source group, including an unavailable placeholder.
+ * @param record Receives the disk form only on success.
+ * @return False for a noncanonical group.
+ */
+[[nodiscard]] bool encode_group(const vendors::ExpressionGroup& group,
+                                ExpressionGroupRecord& record) noexcept {
+    if (!vendors::valid(group)) {
+        return false;
+    }
+    record = {};
+    record.available = group.available ? 1 : 0;
+    record.count = group.count;
+    for (std::size_t index = 0; index < group.count; ++index) {
+        record.opcodes[index] = static_cast<std::uint8_t>(group.instructions[index].opcode);
+        record.operands[index] = group.instructions[index].operand;
+        record.ends[index] = group.ends[index] ? 1 : 0;
+    }
+    return true;
+}
+
+/**
+ * Refuses invalid boolean encodings and nonzero unused instructions from disk.
+ * @param record Disk group.
+ * @param group Receives the validated group only on success.
+ * @return False for an invalid field, boundary or opcode.
+ */
+[[nodiscard]] bool decode_group(const ExpressionGroupRecord& record,
+                                vendors::ExpressionGroup& group) noexcept {
+    if (record.available > 1) {
+        return false;
+    }
+    vendors::ExpressionGroup staged{};
+    staged.available = record.available != 0;
+    staged.count = record.count;
+    for (std::size_t index = 0; index < staged.instructions.size(); ++index) {
+        if (record.ends[index] > 1) {
+            return false;
+        }
+        staged.instructions[index] = {static_cast<vendors::Opcode>(record.opcodes[index]),
+                                      record.operands[index]};
+        staged.ends[index] = record.ends[index] != 0;
+    }
+    if (!vendors::valid(staged)) {
+        return false;
+    }
+    group = staged;
+    return true;
+}
+
 } // namespace
 
 /** Encodes one name with zero padding and a fixed-width length. */
@@ -233,6 +284,10 @@ bool encode(const items::details::Definition& value, ItemDetailRecord& record) n
     record.definitionIndex = value.definitionIndex;
     record.bucketId = value.bucketId;
     record.equipmentSlot = value.equipmentSlot.value_or(kAbsentEquipmentSlot);
+    if (!encode_group(value.equipRequirements, record.equipRequirements)
+        || !encode_group(value.plugEquipRequirements, record.plugEquipRequirements)) {
+        return false;
+    }
     record.instancedDefinition = static_cast<std::uint8_t>(value.instancedDefinitionState);
     record.ordinarySocketState = static_cast<std::uint8_t>(value.ordinarySocketState);
     record.ordinarySocketCount = value.ordinarySocketCount;
@@ -263,7 +318,9 @@ bool encode(const items::details::Definition& value, ItemDetailRecord& record) n
 /** Turns the equipment-slot unset value back into a runtime optional. */
 bool decode(const ItemDetailRecord& record, items::details::Definition& value) noexcept {
     value = {};
-    if (!std::isfinite(record.levelCap) || record.levelCap < 0
+    if (!decode_group(record.equipRequirements, value.equipRequirements)
+        || !decode_group(record.plugEquipRequirements, value.plugEquipRequirements)
+        || !std::isfinite(record.levelCap) || record.levelCap < 0
         || record.instancedDefinition
                > static_cast<std::uint8_t>(items::details::InstancedDefinitionState::instanced)) {
         return false;

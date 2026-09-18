@@ -15,6 +15,18 @@ enum class EquipRequirementSource : std::uint8_t {
 };
 
 /**
+ * Decodes a complete requirement group for the installed item-detail catalog.
+ * @param definition Whole serialized item or plug definition.
+ * @param source Selects the base-item group or the plug's equip group.
+ * @param output Receives the parsed group; reset to unavailable on refusal.
+ * @return False for unsupported or malformed content, including capacity overflow.
+ */
+[[nodiscard]] bool
+read_equip_requirements(std::span<const std::byte> definition,
+                        EquipRequirementSource source,
+                        state::build_data::vendors::ExpressionGroup& output) noexcept;
+
+/**
  * Evaluates every expression in one base-item or installed-plug equip group.
  * @param definition Whole serialized definition of the item or selected plug, not a plug pool.
  * @param source Selects the base-item group or the plug's equip group.
