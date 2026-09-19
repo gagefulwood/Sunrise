@@ -34,17 +34,92 @@ constexpr std::int32_t kObjectiveMinimum = 899;
 constexpr std::int32_t kChallengeCount = 3, kEngramCount = 2;
 /** A second synthetic input must not be satisfied by the first counter. */
 constexpr std::uint16_t kOtherObjectiveValueSlot = kObjectiveValueSlot + 1;
-/** The synthetic completion reference remains visible to the runtime policy. */
+/** The synthetic completion reference remains visible so runtime can refuse unresolved effects. */
 constexpr std::uint16_t kCompletionEffect = 42;
+// Native layout values stay local so the fixture does not inherit decoder constants.
+constexpr std::uint32_t kArrayClass = 0x80800000U;
+constexpr std::size_t kItemObjectiveOffset = 0x30, kItemQuestSetOffset = 0x60;
+constexpr std::size_t kItemBucketOffset = 0xB8;
+constexpr std::uint8_t kPursuitBucket = 40;
+constexpr std::uint32_t kObjectiveBlockClass = 0x808077EBU;
+constexpr std::uint32_t kQuestSetBlockClass = 0x808077C8U;
+constexpr std::uint32_t kObjectiveReferenceClass = 0x808087B1U;
+constexpr std::uint32_t kQuestMemberClass = 0x808077CAU;
+constexpr std::uint32_t kObjectiveRowClass = 0x8080775FU;
+constexpr std::uint32_t kInstructionClass = 0x80807D31U;
+/** Objective blocks store three 16-bit completion references before their mode bytes. */
+constexpr std::size_t kCompletionEffectOffset = 0x10, kSecondaryEffectOffset = 0x12;
+constexpr std::size_t kReservedObjectiveReferenceOffset = 0x14;
+/** Native objective modes select ordinary processing, all objectives and automatic completion. */
+constexpr std::size_t kProcessingModeOffset = 0x16, kAllObjectivesOffset = 0x17;
+constexpr std::size_t kOptionalModeOffset = 0x18, kAutomaticCompletionOffset = 0x19;
+constexpr std::size_t kObjectiveLatchOffset = 0x1A, kParentItemOffset = 0x1C;
+/** Absent native completion references use all sixteen bits set. */
+constexpr std::uint16_t kAbsentReference = 0xFFFFU;
+constexpr std::uint8_t kOrdinaryProcessing = 0, kIncludeOptionalObjectives = 0;
+constexpr std::uint8_t kAllObjectivesRequired = 1, kAutomaticCompletion = 1;
+/** Native quest sets store a 16-bit value slot and a separate one-byte mode. */
+constexpr std::size_t kSetValueSlotOffset = 0x10, kSetModeOffset = 0x1C;
+constexpr std::uint8_t kSupportedSetMode = 1, kUnsupportedSetMode = 2;
+constexpr std::size_t kSetMemberStride = 8, kSetMemberItemOffset = 4;
+constexpr std::size_t kSetMemberReservedOffset = 6;
+constexpr std::size_t kAccountMapDescriptor = 8, kCharacterMapDescriptor = 24;
+/** Native map rows store the destination slot before a reserved 16-bit field. */
+constexpr std::size_t kMapSlotOffset = 4, kMapReservedOffset = 6;
+/** Native objective rows contain an expression, special flags, a threshold and a modifier. */
+constexpr std::size_t kObjectiveExpressionOffset = 8, kObjectiveSpecialFlagsOffset = 0x28;
+constexpr std::size_t kObjectiveThresholdOffset = 0x30, kObjectiveModifierOffset = 0x38;
+constexpr std::size_t kInstructionStride = 8, kInstructionOperandOffset = 4;
+constexpr std::uint32_t kReadValueOpcode = 10, kLiteralOpcode = 11;
+constexpr std::uint32_t kGreaterEqualOpcode = 14, kUnusedOperand = 0xFFFFFFFFU;
+/** Native value slots must fit the nonnegative range of a signed 16-bit mapping. */
+constexpr std::uint32_t kInvalidValueSlot = 0x8000U;
+constexpr std::int32_t kBooleanThreshold = 1;
+// Synthetic placements are arbitrary; each block and nested array must remain disjoint.
+/** These byte capacities leave room for the fixture's blocks and malformed-array cases. */
+constexpr std::size_t kDefinitionSize = 0x300, kValueMapSize = 0x100;
+constexpr std::size_t kObjectiveTableSize = 0x400;
+constexpr std::size_t kObjectiveBlock = 0x100, kQuestSetBlock = 0x140;
+constexpr std::size_t kSetHeader = 0x180, kSetRows = 0x190;
+constexpr std::size_t kObjectiveReferenceHeader = 0x200, kObjectiveReferences = 0x210;
+constexpr std::size_t kCharacterMapHeader = 0x80, kCharacterMapRow = 0x90;
+constexpr std::size_t kAccountMapHeader = 0xA0, kAccountMapRow = 0xB0;
+/** Row three follows the native 16-byte array header and three 0xA0-byte objective rows. */
+constexpr std::size_t kObjectiveTableHeader = 0x40, kObjectiveRow = 0x230;
+/** The synthetic objective-table descriptor starts after an unused 64-bit prefix. */
+constexpr std::size_t kObjectiveTableDescriptor = 8;
+/** Synthetic expression storage leaves room for an unsupported modifier array. */
+constexpr std::size_t kExpressionHeader = 0x320, kExpressionRows = 0x330;
+constexpr std::size_t kModifierHeader = 0x360;
+/** The value-map reader only needs the native class prefix; this row class is synthetic. */
+constexpr std::uint32_t kFixtureMapRowClass = 0x80800001U;
+constexpr std::uint64_t kSetMemberCount = 4, kObjectiveRowCount = 4;
+constexpr std::uint64_t kPredicateInstructionCount = 3;
+constexpr std::int32_t kStepValueSpacing = 100;
+/** Malformed cases use the third member and one nonzero reserved bit. */
+constexpr std::size_t kThirdMemberIndex = 2;
+constexpr std::uint16_t kReservedFieldSet = 1;
+/** Four instructions exceed the supported three-row predicate grammar. */
+constexpr std::uint64_t kTrailingInstructionCount = 4;
+/** One more than the fixed objective capacity must be refused. */
+constexpr std::uint64_t kObjectiveOverflowCount =
+    sunrise::state::build_data::items::kQuestObjectiveCapacity + 1;
+/** Signed and wide thresholds prove the reader does not narrow objective values. */
+constexpr std::int32_t kNegativeMinimum = -5, kWideMinimum = 70000;
 
-/** Fixed offsets keep each synthetic block and nested array disjoint. */
-constexpr std::size_t kObjectiveBlock = 0x100;
-constexpr std::size_t kQuestSetBlock = 0x140;
-constexpr std::size_t kSetRows = 0x190;
-constexpr std::size_t kObjectiveReferences = 0x210;
-constexpr std::size_t kObjectiveRow = 0x230;
-constexpr std::size_t kExpressionRows = 0x330;
-constexpr std::size_t kCharacterMapRow = 0x90;
+/** Retained build 86657 contains four consecutive members in this quest set. */
+constexpr std::uint16_t kRetainedFirstItem = 15284, kRetainedSecondItem = 15285;
+constexpr std::uint16_t kRetainedThirdItem = 15286, kRetainedFinalItem = 15287;
+/** Build 86657's installed item table contains this many rows. */
+constexpr std::size_t kRetainedItemCount = 15424;
+/** The retained quest set maps its stage value into character-object row 526. */
+constexpr std::uint16_t kRetainedQuestRow = 526;
+/** Retained counted objectives use these character-owned value slots. */
+constexpr std::uint16_t kRetainedChallengeSlot = 13080, kRetainedEngramSlot = 13081;
+/** Retained completion references identify the first two supported stage effects. */
+constexpr std::uint16_t kRetainedFirstEffect = 11481, kRetainedSecondEffect = 11484;
+/** The retained third stage compares its input against this authored threshold. */
+constexpr std::int32_t kRetainedThirdMinimum = 910;
 
 void check(bool condition, const char* message) {
     if (!condition) {
@@ -78,7 +153,7 @@ void put_array(std::vector<std::byte>& bytes,
         descriptor + sizeof(std::uint64_t),
         static_cast<std::int64_t>(header)
             - static_cast<std::int64_t>(descriptor + sizeof(std::uint64_t)));
-    put(bytes, header - sizeof(std::uint32_t), std::uint32_t{0x80800000U});
+    put(bytes, header - sizeof(std::uint32_t), kArrayClass);
     put(bytes, header, count);
     put(bytes, header + sizeof(std::uint64_t), elementClass);
 }
@@ -99,50 +174,69 @@ struct Fixture {
 
 /** @return A complete synthetic quest and its separate value-map and objective blobs. */
 Fixture fixture() {
-    Fixture result{std::vector<std::byte>(0x300),
-                   std::vector<std::byte>(0x100),
-                   std::vector<std::byte>(0x400)};
+    Fixture result{std::vector<std::byte>(kDefinitionSize),
+                   std::vector<std::byte>(kValueMapSize),
+                   std::vector<std::byte>(kObjectiveTableSize)};
 
-    // Item +0x30 and +0x60 point at the supported objective and ordered-set blocks.
-    put_block(result.definition, 0x30, kObjectiveBlock, 0x808077EBU);
-    put_block(result.definition, 0x60, kQuestSetBlock, 0x808077C8U);
-    put(result.definition, std::size_t{0xB8}, std::uint8_t{40});
+    put_block(result.definition, kItemObjectiveOffset, kObjectiveBlock, kObjectiveBlockClass);
+    put_block(result.definition, kItemQuestSetOffset, kQuestSetBlock, kQuestSetBlockClass);
+    put(result.definition, kItemBucketOffset, kPursuitBucket);
 
-    put_array(result.definition, kObjectiveBlock, 0x200, 1, 0x808087B1U);
+    put_array(
+        result.definition, kObjectiveBlock, kObjectiveReferenceHeader, 1, kObjectiveReferenceClass);
     put(result.definition, kObjectiveReferences, kObjectiveIndex);
-    put(result.definition, kObjectiveBlock + 0x10, kCompletionEffect);
-    put(result.definition, kObjectiveBlock + 0x12, std::uint16_t{0xFFFFU});
-    put(result.definition, kObjectiveBlock + 0x14, std::uint16_t{0xFFFFU});
-    put(result.definition, kObjectiveBlock + 0x16, std::uint8_t{0});
-    put(result.definition, kObjectiveBlock + 0x17, std::uint8_t{1});
-    put(result.definition, kObjectiveBlock + 0x18, std::uint8_t{0});
-    put(result.definition, kObjectiveBlock + 0x19, std::uint8_t{1});
-    put(result.definition, kObjectiveBlock + 0x1A, std::uint16_t{0xFFFFU});
-    put(result.definition, kObjectiveBlock + 0x1C, kSourceItem);
+    put(result.definition, kObjectiveBlock + kCompletionEffectOffset, kCompletionEffect);
+    put(result.definition, kObjectiveBlock + kSecondaryEffectOffset, kAbsentReference);
+    put(result.definition, kObjectiveBlock + kReservedObjectiveReferenceOffset, kAbsentReference);
+    put(result.definition, kObjectiveBlock + kProcessingModeOffset, kOrdinaryProcessing);
+    put(result.definition, kObjectiveBlock + kAllObjectivesOffset, kAllObjectivesRequired);
+    put(result.definition, kObjectiveBlock + kOptionalModeOffset, kIncludeOptionalObjectives);
+    put(result.definition, kObjectiveBlock + kAutomaticCompletionOffset, kAutomaticCompletion);
+    put(result.definition, kObjectiveBlock + kObjectiveLatchOffset, kAbsentReference);
+    put(result.definition, kObjectiveBlock + kParentItemOffset, kSourceItem);
 
-    put_array(result.definition, kQuestSetBlock, 0x180, 4, 0x808077CAU);
-    put(result.definition, kQuestSetBlock + 0x10, kSetValueSlot);
-    put(result.definition, kQuestSetBlock + 0x1C, std::uint8_t{1});
-    for (std::size_t index = 0; index < 4; ++index) {
-        put(result.definition, kSetRows + index * 8, static_cast<std::int32_t>((index + 1) * 100));
+    put_array(result.definition, kQuestSetBlock, kSetHeader, kSetMemberCount, kQuestMemberClass);
+    put(result.definition, kQuestSetBlock + kSetValueSlotOffset, kSetValueSlot);
+    put(result.definition, kQuestSetBlock + kSetModeOffset, kSupportedSetMode);
+    for (std::size_t index = 0; index < kSetMemberCount; ++index) {
         put(result.definition,
-            kSetRows + index * 8 + 4,
+            kSetRows + index * kSetMemberStride,
+            static_cast<std::int32_t>((index + 1) * kStepValueSpacing));
+        put(result.definition,
+            kSetRows + index * kSetMemberStride + kSetMemberItemOffset,
             static_cast<std::uint16_t>(kSourceItem + index));
     }
 
     // Only the character map contains the quest-set slot.
-    put_array(result.valueMap, 24, 0x80, 1, 0x80800001U);
-    put(result.valueMap, kCharacterMapRow + 4, static_cast<std::int16_t>(kSetValueSlot));
+    put_array(
+        result.valueMap, kCharacterMapDescriptor, kCharacterMapHeader, 1, kFixtureMapRowClass);
+    put(result.valueMap,
+        kCharacterMapRow + kMapSlotOffset,
+        static_cast<std::int16_t>(kSetValueSlot));
 
-    put_array(result.objectiveTable, 8, 0x40, 4, 0x8080775FU);
-    put(result.objectiveTable, kObjectiveRow + 0x30, std::int32_t{1});
-    put_array(result.objectiveTable, kObjectiveRow + 8, 0x320, 3, 0x80807D31U);
-    put(result.objectiveTable, kExpressionRows, std::uint32_t{10});
-    put(result.objectiveTable, kExpressionRows + 4, std::uint32_t{kObjectiveValueSlot});
-    put(result.objectiveTable, kExpressionRows + 8, std::uint32_t{11});
-    put(result.objectiveTable, kExpressionRows + 12, kObjectiveMinimum);
-    put(result.objectiveTable, kExpressionRows + 16, std::uint32_t{14});
-    put(result.objectiveTable, kExpressionRows + 20, std::uint32_t{0xFFFFFFFFU});
+    put_array(result.objectiveTable,
+              kObjectiveTableDescriptor,
+              kObjectiveTableHeader,
+              kObjectiveRowCount,
+              kObjectiveRowClass);
+    put(result.objectiveTable, kObjectiveRow + kObjectiveThresholdOffset, kBooleanThreshold);
+    put_array(result.objectiveTable,
+              kObjectiveRow + kObjectiveExpressionOffset,
+              kExpressionHeader,
+              kPredicateInstructionCount,
+              kInstructionClass);
+    put(result.objectiveTable, kExpressionRows, kReadValueOpcode);
+    put(result.objectiveTable,
+        kExpressionRows + kInstructionOperandOffset,
+        std::uint32_t{kObjectiveValueSlot});
+    put(result.objectiveTable, kExpressionRows + kInstructionStride, kLiteralOpcode);
+    put(result.objectiveTable,
+        kExpressionRows + kInstructionStride + kInstructionOperandOffset,
+        kObjectiveMinimum);
+    put(result.objectiveTable, kExpressionRows + 2 * kInstructionStride, kGreaterEqualOpcode);
+    put(result.objectiveTable,
+        kExpressionRows + 2 * kInstructionStride + kInstructionOperandOffset,
+        kUnusedOperand);
     return result;
 }
 
@@ -219,8 +313,8 @@ void verify_generated() {
     QuestTransition expected{};
     expected.sourceItemIndex = kSourceItem;
     expected.successorItemIndex = kSuccessorItem;
-    expected.currentValue = 100;
-    expected.nextValue = 200;
+    expected.currentValue = kStepValueSpacing;
+    expected.nextValue = 2 * kStepValueSpacing;
     expected.valueRow = 0;
     expected.objectives[0] = QuestPredicate{kObjectiveValueSlot, kObjectiveMinimum};
     expected.objectiveCount = 1;
@@ -248,114 +342,139 @@ void verify_generated() {
     malformed.objectiveCount = malformed.objectives.size() + 1;
     check(!complete(malformed, Family5State{}), "malformed transition completed");
 
-    rejected(value, "truncated item accepted", kSourceItem, 0x30);
+    rejected(value, "truncated item accepted", kSourceItem, kItemObjectiveOffset);
 
     value = fixture();
-    put(value.definition, kQuestSetBlock + 0x1C, std::uint8_t{2});
+    put(value.definition, kQuestSetBlock + kSetModeOffset, kUnsupportedSetMode);
     rejected(value, "unsupported quest-set mode accepted");
 
     value = fixture();
-    put(value.definition, kSetRows + 2 * 8 + 4, kSuccessorItem);
+    put(value.definition,
+        kSetRows + kThirdMemberIndex * kSetMemberStride + kSetMemberItemOffset,
+        kSuccessorItem);
     rejected(value, "duplicate member item accepted");
 
     value = fixture();
-    put(value.definition, kSetRows + 6, std::uint16_t{1});
+    put(value.definition, kSetRows + kSetMemberReservedOffset, kReservedFieldSet);
     rejected(value, "quest-set reserved field accepted");
 
     value = fixture();
-    put(value.definition, kSetRows + 2 * 8, std::int32_t{100});
+    put(value.definition, kSetRows + kThirdMemberIndex * kSetMemberStride, kStepValueSpacing);
     rejected(value, "duplicate current step accepted");
 
     value = fixture();
-    put(value.definition, kSetRows + 2 * 8, std::int32_t{200});
+    put(value.definition, kSetRows + kThirdMemberIndex * kSetMemberStride, 2 * kStepValueSpacing);
     rejected(value, "duplicate next step accepted");
 
     value = fixture();
-    put(value.definition, kSetRows + 2 * 8, std::int32_t{-1});
+    put(value.definition,
+        kSetRows + kThirdMemberIndex * kSetMemberStride,
+        sunrise::state::build_data::items::kUnsetQuestValue);
     rejected(value, "invalid step sentinel accepted");
 
-    rejected(fixture(), "final quest member accepted", kSourceItem + 3);
+    rejected(fixture(),
+             "final quest member accepted",
+             static_cast<std::uint16_t>(kSourceItem + kSetMemberCount - 1));
 
     value = fixture();
-    put_array(value.valueMap, 8, 0xA0, 1, 0x80800001U);
-    put(value.valueMap, std::size_t{0xB4}, static_cast<std::int16_t>(kSetValueSlot));
+    put_array(value.valueMap, kAccountMapDescriptor, kAccountMapHeader, 1, kFixtureMapRowClass);
+    put(value.valueMap, kAccountMapRow + kMapSlotOffset, static_cast<std::int16_t>(kSetValueSlot));
     rejected(value, "duplicate value mapping accepted");
 
     value = fixture();
-    put(value.valueMap, std::size_t{24}, std::uint64_t{0});
-    put(value.valueMap, std::size_t{32}, std::int64_t{0});
-    put_array(value.valueMap, 8, 0xA0, 1, 0x80800001U);
-    put(value.valueMap, std::size_t{0xB4}, static_cast<std::int16_t>(kSetValueSlot));
+    put(value.valueMap, kCharacterMapDescriptor, std::uint64_t{0});
+    put(value.valueMap, kCharacterMapDescriptor + sizeof(std::uint64_t), std::int64_t{0});
+    put_array(value.valueMap, kAccountMapDescriptor, kAccountMapHeader, 1, kFixtureMapRowClass);
+    put(value.valueMap, kAccountMapRow + kMapSlotOffset, static_cast<std::int16_t>(kSetValueSlot));
     rejected(value, "account-scoped quest value accepted");
 
     value = fixture();
-    put(value.valueMap, kCharacterMapRow + 6, std::uint16_t{1});
+    put(value.valueMap, kCharacterMapRow + kMapReservedOffset, kReservedFieldSet);
     rejected(value, "mapping reserved field accepted");
 
     value = fixture();
-    put(value.definition, kObjectiveBlock + 0x12, std::uint16_t{1});
+    put(value.definition, kObjectiveBlock + kSecondaryEffectOffset, kReservedFieldSet);
     rejected(value, "secondary completion effect accepted");
 
     value = fixture();
-    put(value.definition, kObjectiveBlock + 0x17, std::uint8_t{0});
+    put(value.definition, kObjectiveBlock + kAllObjectivesOffset, std::uint8_t{0});
     rejected(value, "any-objective mode accepted");
 
     value = fixture();
-    put(value.definition, kObjectiveBlock + 0x19, std::uint8_t{0});
+    put(value.definition, kObjectiveBlock + kAutomaticCompletionOffset, std::uint8_t{0});
     rejected(value, "manual completion mode accepted");
 
     value = fixture();
-    put(value.objectiveTable, kObjectiveRow + 0x28, std::uint8_t{1});
+    put(value.objectiveTable,
+        kObjectiveRow + kObjectiveSpecialFlagsOffset,
+        static_cast<std::uint8_t>(kReservedFieldSet));
     rejected(value, "objective special flag accepted");
 
     value = fixture();
-    put(value.objectiveTable, kObjectiveRow + 0x30, std::int32_t{2});
+    put(value.objectiveTable, kObjectiveRow + kObjectiveThresholdOffset, kEngramCount);
     rejected(value, "non-boolean objective threshold accepted");
 
     value = fixture();
-    put(value.objectiveTable, kExpressionRows, std::uint32_t{11});
+    put(value.objectiveTable, kExpressionRows, kLiteralOpcode);
     rejected(value, "reordered expression accepted");
 
     value = fixture();
-    put(value.objectiveTable, kObjectiveRow + 8, std::uint64_t{4});
-    put(value.objectiveTable, std::size_t{0x320}, std::uint64_t{4});
+    put(value.objectiveTable,
+        kObjectiveRow + kObjectiveExpressionOffset,
+        kTrailingInstructionCount);
+    put(value.objectiveTable, kExpressionHeader, kTrailingInstructionCount);
     rejected(value, "trailing expression instruction accepted");
 
     value = fixture();
-    put(value.objectiveTable, kExpressionRows + 20, std::uint32_t{0});
+    put(value.objectiveTable,
+        kExpressionRows + 2 * kInstructionStride + kInstructionOperandOffset,
+        std::uint32_t{0});
     rejected(value, "comparison operand sentinel accepted");
 
     value = fixture();
-    put_array(value.objectiveTable, kObjectiveRow + 0x38, 0x360, 1, 0x80807D31U);
+    put_array(value.objectiveTable,
+              kObjectiveRow + kObjectiveModifierOffset,
+              kModifierHeader,
+              1,
+              kInstructionClass);
     rejected(value, "threshold modifier accepted");
 
     value = fixture();
     put(value.definition, kObjectiveBlock, std::uint64_t{2});
-    put(value.definition, std::size_t{0x200}, std::uint64_t{2});
-    put(value.definition, kObjectiveReferences + 2, kObjectiveIndex);
+    put(value.definition, kObjectiveReferenceHeader, std::uint64_t{2});
+    put(value.definition, kObjectiveReferences + sizeof(kObjectiveIndex), kObjectiveIndex);
     rejected(value, "duplicate objective reference accepted");
 
     value = fixture();
-    put(value.definition, kObjectiveBlock, std::uint64_t{17});
-    put(value.definition, std::size_t{0x200}, std::uint64_t{17});
+    put(value.definition, kObjectiveBlock, kObjectiveOverflowCount);
+    put(value.definition, kObjectiveReferenceHeader, kObjectiveOverflowCount);
     rejected(value, "objective capacity overflow accepted");
 
     value = fixture();
-    value.objectiveTable.resize(kExpressionRows + 20);
+    value.objectiveTable.resize(kExpressionRows + 2 * kInstructionStride
+                                + kInstructionOperandOffset);
     rejected(value, "truncated full expression accepted");
 
     value = fixture();
-    put(value.objectiveTable, kExpressionRows + 12, std::int32_t{-5});
+    put(value.objectiveTable,
+        kExpressionRows + kInstructionStride + kInstructionOperandOffset,
+        kNegativeMinimum);
     QuestTransition signedMinimum = read(value);
-    check(signedMinimum.objectives[0].minimumValue == -5,
+    check(signedMinimum.objectives[0].minimumValue == kNegativeMinimum,
           "signed expression literal was not preserved");
-    put(value.objectiveTable, kExpressionRows + 12, std::int32_t{70000});
-    check(read(value).objectives[0].minimumValue == 70000,
+    put(value.objectiveTable,
+        kExpressionRows + kInstructionStride + kInstructionOperandOffset,
+        kWideMinimum);
+    check(read(value).objectives[0].minimumValue == kWideMinimum,
           "expression literal narrowed to sixteen bits");
 
     value = fixture();
-    put_array(value.objectiveTable, kObjectiveRow + 8, 0x320, 1, 0x80807D31U);
-    put(value.objectiveTable, kObjectiveRow + 0x30, kChallengeCount);
+    put_array(value.objectiveTable,
+              kObjectiveRow + kObjectiveExpressionOffset,
+              kExpressionHeader,
+              1,
+              kInstructionClass);
+    put(value.objectiveTable, kObjectiveRow + kObjectiveThresholdOffset, kChallengeCount);
     QuestTransition counted = read(value);
     check(counted.objectives[0]
               == QuestPredicate{kObjectiveValueSlot,
@@ -382,23 +501,30 @@ void verify_generated() {
     family.values[0].value = kChallengeCount - 1;
     check(!complete(counted, family), "second counter masked incomplete first counter");
 
-    put(value.objectiveTable, kObjectiveRow + 0x30, std::int32_t{70000});
-    check(read(value).objectives[0].minimumValue == 70000, "counter threshold narrowed");
-    put(value.objectiveTable, kObjectiveRow + 0x30, std::int32_t{-5});
-    check(read(value).objectives[0].minimumValue == -5, "counter threshold lost its sign");
+    put(value.objectiveTable, kObjectiveRow + kObjectiveThresholdOffset, kWideMinimum);
+    check(read(value).objectives[0].minimumValue == kWideMinimum, "counter threshold narrowed");
+    put(value.objectiveTable, kObjectiveRow + kObjectiveThresholdOffset, kNegativeMinimum);
+    check(read(value).objectives[0].minimumValue == kNegativeMinimum,
+          "counter threshold lost its sign");
     family.valueCount = 0;
     check(!complete(read(value), family), "absent counter defaulted to a completing zero");
 
     Fixture malformedCounter = value;
-    put(malformedCounter.objectiveTable, kExpressionRows + 4, std::uint32_t{0x8000U});
+    put(malformedCounter.objectiveTable,
+        kExpressionRows + kInstructionOperandOffset,
+        kInvalidValueSlot);
     rejected(malformedCounter, "out-of-range counter slot accepted");
     malformedCounter = value;
-    put(malformedCounter.objectiveTable, kExpressionRows, std::uint32_t{11});
+    put(malformedCounter.objectiveTable, kExpressionRows, kLiteralOpcode);
     rejected(malformedCounter, "literal-only expression accepted as a counter");
     malformedCounter = value;
-    malformedCounter.objectiveTable.resize(kExpressionRows + 4);
+    malformedCounter.objectiveTable.resize(kExpressionRows + kInstructionOperandOffset);
     rejected(malformedCounter, "truncated counter operand accepted");
-    put_array(value.objectiveTable, kObjectiveRow + 8, 0x320, 2, 0x80807D31U);
+    put_array(value.objectiveTable,
+              kObjectiveRow + kObjectiveExpressionOffset,
+              kExpressionHeader,
+              2,
+              kInstructionClass);
     rejected(value, "counter with extra instruction accepted");
 }
 
@@ -411,46 +537,55 @@ void verify_retained(const char* retainedDirectory) {
     const std::vector<std::byte> valueMap = read_file(retainedDirectory, "81319320.bin");
     const std::vector<std::byte> objectives = read_file(retainedDirectory, "81319344.bin");
     QuestTransition output{};
-    check(read_quest_transition(item, 15284, item, 15424, valueMap, objectives, output),
+    check(read_quest_transition(
+              item, kRetainedFirstItem, item, kRetainedItemCount, valueMap, objectives, output),
           "retained first-stage transition rejected");
     QuestTransition expected{};
-    expected.sourceItemIndex = 15284;
-    expected.successorItemIndex = 15285;
-    expected.currentValue = 100;
-    expected.nextValue = 200;
-    expected.valueRow = 526;
-    expected.objectives[0] = {462, 899};
+    expected.sourceItemIndex = kRetainedFirstItem;
+    expected.successorItemIndex = kRetainedSecondItem;
+    expected.currentValue = kStepValueSpacing;
+    expected.nextValue = 2 * kStepValueSpacing;
+    expected.valueRow = kRetainedQuestRow;
+    expected.objectives[0] = {kObjectiveValueSlot, kObjectiveMinimum};
     expected.objectiveCount = 1;
-    expected.completionEffect = 11481;
+    expected.completionEffect = kRetainedFirstEffect;
     check(output == expected, "retained first-stage transition differs");
     // Shared-parser extraction must leave the existing first-acquisition contract unchanged.
     const auto initial =
         sunrise::middleware::content::packages::tables::items::read_quest_initialization(
-            item, 15284, item, 15424, valueMap);
+            item, kRetainedFirstItem, item, kRetainedItemCount, valueMap);
     check(initial.scope == sunrise::state::build_data::items::QuestInitialization::Scope::character
               && initial.value == expected.currentValue && initial.row == expected.valueRow,
           "first-acquisition metadata regressed");
     const auto second = read_file(retainedDirectory, "81327ADC.bin");
-    check(read_quest_transition(second, 15285, second, 15424, valueMap, objectives, output),
-          "counted-objective stage rejected");
-    expected.sourceItemIndex = 15285;
-    expected.successorItemIndex = 15286;
-    expected.currentValue = 200;
-    expected.nextValue = 300;
-    expected.objectives[0] = {13080, 3, QuestPredicate::Input::characterCounter};
-    expected.objectives[1] = {13081, 2, QuestPredicate::Input::characterCounter};
+    check(
+        read_quest_transition(
+            second, kRetainedSecondItem, second, kRetainedItemCount, valueMap, objectives, output),
+        "counted-objective stage rejected");
+    expected.sourceItemIndex = kRetainedSecondItem;
+    expected.successorItemIndex = kRetainedThirdItem;
+    expected.currentValue = 2 * kStepValueSpacing;
+    expected.nextValue = 3 * kStepValueSpacing;
+    expected.objectives[0] = {
+        kRetainedChallengeSlot, kChallengeCount, QuestPredicate::Input::characterCounter};
+    expected.objectives[1] = {
+        kRetainedEngramSlot, kEngramCount, QuestPredicate::Input::characterCounter};
     expected.objectiveCount = 2;
-    expected.completionEffect = 11484;
+    expected.completionEffect = kRetainedSecondEffect;
     check(output == expected, "retained counter requirements or completion reference differ");
     check(!complete(output, Family5State{}), "decoding metadata supplied missing earned progress");
     const auto third = read_file(retainedDirectory, "81327ADF.bin");
-    check(read_quest_transition(third, 15286, third, 15424, valueMap, objectives, output)
-              && output.sourceItemIndex == 15286 && output.successorItemIndex == 15287
-              && output.currentValue == 300 && output.nextValue == 400
-              && output.objectives[0].minimumValue == 910,
+    check(read_quest_transition(
+              third, kRetainedThirdItem, third, kRetainedItemCount, valueMap, objectives, output)
+              && output.sourceItemIndex == kRetainedThirdItem
+              && output.successorItemIndex == kRetainedFinalItem
+              && output.currentValue == 3 * kStepValueSpacing
+              && output.nextValue == 4 * kStepValueSpacing
+              && output.objectives[0].minimumValue == kRetainedThirdMinimum,
           "non-first supported stage rejected");
     const auto final = read_file(retainedDirectory, "81327AE2.bin");
-    check(!read_quest_transition(final, 15287, final, 15424, valueMap, objectives, output),
+    check(!read_quest_transition(
+              final, kRetainedFinalItem, final, kRetainedItemCount, valueMap, objectives, output),
           "final completion accepted as a replacement");
 }
 
