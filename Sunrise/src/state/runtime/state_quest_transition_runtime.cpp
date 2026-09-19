@@ -109,20 +109,15 @@ constexpr std::uint8_t kPursuitEquipmentSlot = 0;
  * @param sourceInstanceSoid Owned current-stage item to replace.
  * @param transition Decoded installed-content contract, not a client request.
  * @param mutation Receives a complete plan, or stays empty on refusal.
- * @param policy Whether unresolved effects may be omitted for a reconstruction test.
  * @return False unless the single replacement fits and all supported objectives are complete.
  */
 bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
                               const items::QuestTransition& transition,
-                              PendingQuestTransition& mutation,
-                              QuestTransitionPolicy policy) noexcept {
+                              PendingQuestTransition& mutation) noexcept {
     const std::lock_guard lock(investment::store::g_mutex);
     mutation = {};
     if (!items::valid(transition) || sourceInstanceSoid == 0
-        || (policy != QuestTransitionPolicy::requireNoEffects
-            && policy != QuestTransitionPolicy::reconstructLinear)
-        || (policy == QuestTransitionPolicy::requireNoEffects
-            && transition.completionEffect != items::kUnavailableQuestCompletionEffect)) {
+        || transition.completionEffect != items::kUnavailableQuestCompletionEffect) {
         return false;
     }
 
@@ -211,7 +206,6 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     mutation.characterIndex = characterIndex;
     mutation.sourceRow = sourceRow;
     mutation.successorRow = successorRow;
-    mutation.policy = policy;
     mutation.prepared = true;
     return true;
 }
@@ -231,8 +225,7 @@ bool preview_quest_transition(const items::QuestTransition& transition,
     const std::lock_guard lock(investment::store::g_mutex);
     PendingQuestTransition rebuilt{};
     if (!mutation.prepared || transition != mutation.transition
-        || !prepare_quest_transition(
-            mutation.sourceInstanceSoid, transition, rebuilt, mutation.policy)
+        || !prepare_quest_transition(mutation.sourceInstanceSoid, transition, rebuilt)
         || mutation.accountSoid != rebuilt.accountSoid
         || mutation.characterIndex != rebuilt.characterIndex
         || mutation.successorInstanceSoid != rebuilt.successorInstanceSoid

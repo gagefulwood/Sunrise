@@ -658,7 +658,7 @@ bool process(const ServiceRoute& route,
         }
         // Every pick is answered, the current character included; character select waits on it.
         if (webOutcome.hasSelectedCharacter) {
-            outcome.selectedCharacterChanged = webOutcome.selectedCharacterChanged;
+            outcome.selectedCharacterRecorded = true;
             auto* selectCharacter = emplace_transaction<queuez::SelectCharacter>(outcome);
             if (selectCharacter != nullptr
                 && queuez::stage_select_character(

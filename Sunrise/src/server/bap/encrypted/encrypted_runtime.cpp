@@ -538,7 +538,12 @@ bool consume(Session& session,
             if (resyncsCommittedAccount) {
                 bap::arm_account_resync_everywhere();
             }
-            if (outcome.selectedCharacterChanged || artifactPurchase || outcome.hasArtifactReset) {
+            if (outcome.selectedCharacterRecorded) {
+                // Family 5 must land before the queued Family-4 rebuild.
+                session.investmentRefreshArmed = true;
+                session.accountResyncArmed = true;
+            }
+            if (artifactPurchase || outcome.hasArtifactReset) {
                 session.investmentRefreshArmed = true;
             }
             if (artifactPurchase || outcome.hasArtifactReset) {

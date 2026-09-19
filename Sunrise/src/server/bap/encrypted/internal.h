@@ -178,8 +178,8 @@ struct ServiceOutcome {
 
     bool hasSelectCharacter{};
 
-    /** Selection can commit even when its Family-4 publication falls back to resync. */
-    bool selectedCharacterChanged{};
+    /** An accepted character pick still owes its selected-character objective projection. */
+    bool selectedCharacterRecorded{};
 
     /** One service owns at most one independently versioned, exact-sized transaction. */
 

@@ -10,14 +10,6 @@
 
 namespace sunrise::state {
 
-/** Completion effects are not implied by the order of quest-set members. */
-enum class QuestTransitionPolicy : std::uint8_t {
-    /** Refuse any completion reference whose effects have not been supplied. */
-    requireNoEffects,
-    /** Explicit test policy: replace the member without applying completion effects. */
-    reconstructLinear,
-};
-
 /** Inventory, condition inputs and the decoded contract captured before a stage replacement. */
 struct PendingQuestTransition {
     CharacterState beforeCharacter{};
@@ -30,7 +22,6 @@ struct PendingQuestTransition {
     std::size_t characterIndex{};
     std::uint16_t sourceRow{};
     std::uint16_t successorRow{};
-    QuestTransitionPolicy policy{};
     bool prepared{};
 };
 
@@ -39,14 +30,11 @@ struct PendingQuestTransition {
  * @param sourceInstanceSoid Owned current-stage item to replace.
  * @param transition Validated content metadata for one non-final character quest stage.
  * @param mutation Receives the prepared replacement; cleared on failure.
- * @param policy Explicit authorization for unresolved completion effects.
  * @return False when ownership, conditions, saved progress or capacity prevent replacement.
  */
-[[nodiscard]] bool prepare_quest_transition(
-    std::uint64_t sourceInstanceSoid,
-    const build_data::items::QuestTransition& transition,
-    PendingQuestTransition& mutation,
-    QuestTransitionPolicy policy = QuestTransitionPolicy::requireNoEffects) noexcept;
+[[nodiscard]] bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
+                                            const build_data::items::QuestTransition& transition,
+                                            PendingQuestTransition& mutation) noexcept;
 
 /**
  * Rebuilds the replacement against the same content contract and unchanged condition inputs.

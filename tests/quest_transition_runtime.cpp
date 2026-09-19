@@ -18,7 +18,6 @@ namespace {
 namespace state = sunrise::state;
 namespace store = state::investment::store;
 namespace items = state::build_data::items;
-using Policy = state::QuestTransitionPolicy;
 
 /** Synthetic identities are not installed quest hashes or table indices. */
 constexpr std::uint64_t kAccount = 1001, kCharacter = 1002, kOtherCharacter = 1003, kSource = 1004;
@@ -28,6 +27,8 @@ constexpr std::uint32_t kSourceHash = 2001, kSuccessorHash = 2002;
 constexpr std::int32_t kCurrentValue = 300, kNextValue = 100;
 /** One saved character bank row and one global override slot belong to this fixture. */
 constexpr std::uint16_t kQuestRow = 12, kValueSlot = 17;
+/** Synthetic completion row proves unresolved effects are refused. */
+constexpr std::uint16_t kUnresolvedCompletionEffect = 7;
 /** Test threshold crosses the 16-bit boundary to detect narrowed constants. */
 constexpr std::int32_t kMinimumValue = 70000;
 /** Fixture capacity is adjustable to test the State boundary's resolver rejection. */
@@ -59,7 +60,7 @@ std::string read_text(const std::string& path) {
     return result;
 }
 
-/** @return A synthetic decoded contract with an unresolved completion effect. */
+/** @return A synthetic decoded contract with no completion effect. */
 items::QuestTransition contract() {
     items::QuestTransition result{};
     result.sourceItemIndex = 0;
@@ -69,7 +70,13 @@ items::QuestTransition contract() {
     result.valueRow = kQuestRow;
     result.objectiveCount = 1;
     result.objectives[0] = {kValueSlot, kMinimumValue};
-    result.completionEffect = 7; // Synthetic unresolved table row, not an unlock flag.
+    return result;
+}
+
+/** @return The fixture contract with one unresolved completion effect. */
+items::QuestTransition unresolved_contract() {
+    auto result = contract();
+    result.completionEffect = kUnresolvedCompletionEffect;
     return result;
 }
 
@@ -241,11 +248,10 @@ void verify_objective_publication() {
     std::puts("PASS: selected-character objective projection and Family-5 encoding");
 }
 
-/** @return A prepared reconstruction without changing the database. */
+/** @return A prepared transition without changing the database. */
 state::PendingQuestTransition prepare() {
     state::PendingQuestTransition pending{};
-    check(state::prepare_quest_transition(kSource, contract(), pending, Policy::reconstructLinear),
-          "prepare reconstruction");
+    check(state::prepare_quest_transition(kSource, contract(), pending), "prepare transition");
     return pending;
 }
 
@@ -267,7 +273,8 @@ void check_unchanged() {
 void verify_runtime() {
     reset_fixture();
     state::PendingQuestTransition pending{};
-    check(!state::prepare_quest_transition(kSource, contract(), pending) && !pending.prepared,
+    check(!state::prepare_quest_transition(kSource, unresolved_contract(), pending)
+              && !pending.prepared,
           "unresolved effects rejected by default");
     check_unchanged();
 
@@ -318,7 +325,7 @@ void verify_runtime() {
     check_unchanged();
     family.valueCount = 0;
     check(store::write_family5(family), "remove unknown input");
-    check(!state::prepare_quest_transition(kSource, contract(), pending, Policy::reconstructLinear),
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
           "missing input is not complete");
 
     reset_fixture();
@@ -350,7 +357,7 @@ void verify_runtime() {
     inventory.values[1].definitionHash = kSuccessorHash;
     inventory.count = 2;
     check(store::write_account(after), "seed duplicate successor");
-    check(!state::prepare_quest_transition(kSource, contract(), pending, Policy::reconstructLinear),
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
           "owned successor rejected");
 
     reset_fixture();
@@ -363,7 +370,7 @@ void verify_runtime() {
     check(store::read_account(after), "read before stacked source");
     after.characters[0].inventory.values[0].quantity = 2;
     check(store::write_account(after), "seed multi-unit source");
-    check(!state::prepare_quest_transition(kSource, contract(), pending, Policy::reconstructLinear),
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
           "multi-unit source rejected");
 
     reset_fixture();
@@ -392,28 +399,27 @@ void verify_character_objectives() {
     auto counted = contract();
     counted.objectives[0].input = items::QuestPredicate::Input::characterCounter;
     state::PendingQuestTransition pending{};
-    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+    check(!state::prepare_quest_transition(kSource, counted, pending),
           "global override cannot supply character-earned credit");
     check(store::write_character_objective(kOtherCharacter, kValueSlot, kMinimumValue),
           "seed other character counter");
-    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+    check(!state::prepare_quest_transition(kSource, counted, pending),
           "other character cannot supply credit");
     check(store::write_character_objective(kCharacter, kValueSlot, 0)
               && store::read_character_objective(kCharacter, kValueSlot, value) && value.has_value()
               && *value == 0,
           "explicit zero is not absent");
-    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
-          "zero credit is incomplete");
+    check(!state::prepare_quest_transition(kSource, counted, pending), "zero credit is incomplete");
     check(store::write_character_objective(kCharacter, kValueSlot, kMinimumValue),
           "seed completed first counter");
-    check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+    check(state::prepare_quest_transition(kSource, counted, pending),
           "own earned counter satisfies objective");
     counted.objectiveCount = 2;
     counted.objectives[1] = {kValueSlot + 1, 2, items::QuestPredicate::Input::characterCounter};
-    check(!state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+    check(!state::prepare_quest_transition(kSource, counted, pending),
           "missing second earned counter refuses transition");
     check(store::write_character_objective(kCharacter, kValueSlot + 1, 2), "seed second counter");
-    check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear),
+    check(state::prepare_quest_transition(kSource, counted, pending),
           "both earned counters permit transition");
     check(store::write_character_objective(kCharacter, kValueSlot + 1, 3), "change second input");
     check(!state::commit_quest_transition(counted, pending), "stale second counter rejected");
@@ -423,7 +429,7 @@ void verify_character_objectives() {
         store::Transaction outer;
         check(outer.ready() && store::write_character_objective(kCharacter, kValueSlot + 1, 4),
               "stage counter write in outer transaction");
-        check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear)
+        check(state::prepare_quest_transition(kSource, counted, pending)
                   && state::commit_quest_transition(counted, pending),
               "stage replacement joins outer transaction");
         // The caller's uncommitted transaction models a failed publication.
@@ -431,7 +437,7 @@ void verify_character_objectives() {
     check_unchanged();
     check(store::read_character_objective(kCharacter, kValueSlot + 1, value) && value == 3,
           "outer rollback includes earned credit");
-    check(state::prepare_quest_transition(kSource, counted, pending, Policy::reconstructLinear)
+    check(state::prepare_quest_transition(kSource, counted, pending)
               && state::commit_quest_transition(counted, pending),
           "commit with character counters");
     check(store::read_character_objective(kCharacter, kValueSlot, value) && value == kMinimumValue,

@@ -663,7 +663,9 @@ bool consume_deferred(Session& session,
     }
     // Dependent publications wait until the current character's overrides fit the frame.
     if (session.investmentRefreshArmed) {
-        return consume_investment_refresh(session, scratch, response, written, touchesScratch);
+        return consume_investment_refresh(session, scratch, response, written, touchesScratch)
+               || push::activity::consume_activity_keepalive(
+                   session, scratch, response, written, touchesScratch);
     }
     if (consume_artifact_family4_refresh(session, scratch, response, written, touchesScratch)) {
         return true;
