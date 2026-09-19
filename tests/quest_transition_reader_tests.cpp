@@ -8,6 +8,7 @@
 
 #include "../Sunrise/src/middleware/content/packages/tables/quest_initialization_reader.h"
 #include "../Sunrise/src/middleware/content/packages/tables/quest_transition_reader.h"
+#include "../Sunrise/src/state/build_data/reward_sites/reward_site_catalog.h"
 
 namespace {
 
@@ -25,7 +26,7 @@ constexpr std::size_t kItemCount = 20;
 /** The synthetic quest set uses one character-mapped value slot. */
 constexpr std::uint16_t kSetValueSlot = 7;
 /** The synthetic objective reads this explicit Family-5 value slot. */
-constexpr std::uint16_t kObjectiveValueSlot = 462;
+constexpr std::uint16_t kObjectiveValueSlot = 463;
 /** The synthetic objective table uses row three. */
 constexpr std::uint16_t kObjectiveIndex = 3;
 /** The supported synthetic expression compares against this signed literal. */
@@ -116,8 +117,11 @@ constexpr std::size_t kRetainedItemCount = 15424;
 constexpr std::uint16_t kRetainedQuestRow = 526;
 /** Retained counted objectives use these character-owned value slots. */
 constexpr std::uint16_t kRetainedChallengeSlot = 13080, kRetainedEngramSlot = 13081;
-/** Retained completion references identify the first two supported stage effects. */
+/** Retained Power predicates read the selected character's equipment Power. */
+constexpr std::uint16_t kRetainedPowerSlot = 462;
+/** Retained completion references identify the three supported non-final stage effects. */
 constexpr std::uint16_t kRetainedFirstEffect = 11481, kRetainedSecondEffect = 11484;
+constexpr std::uint16_t kRetainedThirdEffect = 11487;
 /** The retained third stage compares its input against this authored threshold. */
 constexpr std::int32_t kRetainedThirdMinimum = 910;
 
@@ -546,10 +550,15 @@ void verify_retained(const char* retainedDirectory) {
     expected.currentValue = kStepValueSpacing;
     expected.nextValue = 2 * kStepValueSpacing;
     expected.valueRow = kRetainedQuestRow;
-    expected.objectives[0] = {kObjectiveValueSlot, kObjectiveMinimum};
+    expected.objectives[0] = {
+        kRetainedPowerSlot, kObjectiveMinimum, QuestPredicate::Input::characterPower};
     expected.objectiveCount = 1;
     expected.completionEffect = kRetainedFirstEffect;
     check(output == expected, "retained first-stage transition differs");
+    sunrise::state::build_data::reward_sites::Definition rewardSite{};
+    check(sunrise::state::build_data::reward_sites::find(kRetainedFirstEffect, rewardSite)
+              && rewardSite.transition == output,
+          "first reconstructed Reward Site differs from retained metadata");
     // Shared-parser extraction must leave the existing first-acquisition contract unchanged.
     const auto initial =
         sunrise::middleware::content::packages::tables::items::read_quest_initialization(
@@ -573,6 +582,9 @@ void verify_retained(const char* retainedDirectory) {
     expected.objectiveCount = 2;
     expected.completionEffect = kRetainedSecondEffect;
     check(output == expected, "retained counter requirements or completion reference differ");
+    check(sunrise::state::build_data::reward_sites::find(kRetainedSecondEffect, rewardSite)
+              && rewardSite.transition == output,
+          "second reconstructed Reward Site differs from retained metadata");
     check(!complete(output, Family5State{}), "decoding metadata supplied missing earned progress");
     const auto third = read_file(retainedDirectory, "81327ADF.bin");
     check(read_quest_transition(
@@ -581,8 +593,14 @@ void verify_retained(const char* retainedDirectory) {
               && output.successorItemIndex == kRetainedFinalItem
               && output.currentValue == 3 * kStepValueSpacing
               && output.nextValue == 4 * kStepValueSpacing
-              && output.objectives[0].minimumValue == kRetainedThirdMinimum,
+              && output.objectives[0].valueSlot == kRetainedPowerSlot
+              && output.objectives[0].minimumValue == kRetainedThirdMinimum
+              && output.objectives[0].input == QuestPredicate::Input::characterPower
+              && output.completionEffect == kRetainedThirdEffect,
           "non-first supported stage rejected");
+    check(sunrise::state::build_data::reward_sites::find(kRetainedThirdEffect, rewardSite)
+              && rewardSite.transition == output,
+          "third reconstructed Reward Site differs from retained metadata");
     const auto final = read_file(retainedDirectory, "81327AE2.bin");
     check(!read_quest_transition(
               final, kRetainedFinalItem, final, kRetainedItemCount, valueMap, objectives, output),

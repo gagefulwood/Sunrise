@@ -96,7 +96,10 @@ constexpr std::int32_t kBooleanObjectiveThreshold = 1;
         || comparisonOperand != kUnusedInstructionOperand) {
         return false;
     }
-    output = {static_cast<std::uint16_t>(valueSlot), literal};
+    const auto input = valueSlot == state::build_data::items::kQuestCharacterPowerSlot
+                           ? Predicate::Input::characterPower
+                           : Predicate::Input::family5;
+    output = {static_cast<std::uint16_t>(valueSlot), literal, input};
     return true;
 }
 

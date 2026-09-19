@@ -493,6 +493,8 @@ struct Session {
     bool accountMutationPublished{};
     /** True while another peer's account mutation still needs a full local refresh. */
     bool accountResyncArmed{};
+    /** True while selected-character state may satisfy one reconstructed Reward Site. */
+    bool rewardSiteArmed{true};
     /**
      * Tick count after which the owed ability-icon refresh may go out. A subclass selection
      * invalidates the published ability buckets and the rebuild runs off the Client

@@ -37,6 +37,13 @@ struct PendingQuestTransition {
                                             PendingQuestTransition& mutation) noexcept;
 
 /**
+ * Selects one owned source whose reconstructed Reward Site is complete.
+ * @param mutation Receives the prepared replacement; cleared when no supported site can run.
+ * @return True when one exact catalog row authorizes a complete transition.
+ */
+[[nodiscard]] bool prepare_next_reward_site_transition(PendingQuestTransition& mutation) noexcept;
+
+/**
  * Rebuilds the replacement against the same content contract and unchanged condition inputs.
  * @param transition Current installed-content contract, checked against the prepared copy.
  * @param mutation Prepared replacement without any published state.

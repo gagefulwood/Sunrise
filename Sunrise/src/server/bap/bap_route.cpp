@@ -336,9 +336,11 @@ bool session_scenario_layout(const Session& session, layouts::Definition& output
 }
 
 void arm_account_resync_elsewhere(Session& origin) noexcept {
+    origin.rewardSiteArmed = true;
     for (auto& peer : g_sessions) {
         if (&peer != &origin && peer.id != 0 && peer.authenticated && peer.queuez.family4Active) {
             peer.accountResyncArmed = true;
+            peer.rewardSiteArmed = true;
         }
     }
 }
@@ -350,6 +352,7 @@ void arm_account_resync_everywhere() noexcept {
             continue;
         }
         peer.accountResyncArmed = true;
+        peer.rewardSiteArmed = true;
     }
 }
 

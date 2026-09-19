@@ -7,6 +7,7 @@
 #include "core/logging/log.h"
 #include "middleware/encoding/bit_reader.h"
 #include "middleware/web_service/messages/family5_codec.h"
+#include "state/build_data/reward_sites/reward_site_catalog.h"
 #include "state/investment/store_internal.h"
 #include "state/runtime/state_account_transaction_helpers.h"
 #include "state/runtime/state_quest_transition_runtime.h"
@@ -29,6 +30,29 @@ constexpr std::int32_t kCurrentValue = 300, kNextValue = 100;
 constexpr std::uint16_t kQuestRow = 12, kValueSlot = 17;
 /** Synthetic completion row proves unresolved effects are refused. */
 constexpr std::uint16_t kUnresolvedCompletionEffect = 7;
+/** Retained build rows for the four ordered Unlimited Power quest members. */
+constexpr std::uint16_t kPower900Item = 15284, kGearUpItem = 15285;
+constexpr std::uint16_t kPower910Item = 15286, kCryptarchItem = 15287;
+/** Retained item hashes pair those native rows with their installed definitions. */
+constexpr std::uint32_t kPower900Hash = 3398477426U, kGearUpHash = 4280995080U;
+constexpr std::uint32_t kPower910Hash = 3398477425U, kCryptarchHash = 4197518657U;
+/** Retained non-final Reward Site rows; final row 11490 remains unsupported. */
+constexpr std::uint16_t kPower900Site = 11481, kGearUpSite = 11484, kPower910Site = 11487;
+constexpr std::uint16_t kUnsupportedFinalSite = 11490;
+/** Unlimited Power stores its authored stage identifier in character-object row 526. */
+constexpr std::uint16_t kUnlimitedPowerRow = 526;
+/** Gear Up owns these challenge and Prime-decryption counters per character. */
+constexpr std::uint16_t kChallengeCounter = 13080, kPrimeCounter = 13081;
+/** Authored Unlimited Power stage identifiers written to character-object row 526. */
+constexpr std::int32_t kPower900Stage = 100, kGearUpStage = 200;
+constexpr std::int32_t kPower910Stage = 300, kCryptarchStage = 400;
+/** Authored Power and character-counter requirements gate the three supported transitions. */
+constexpr std::int32_t kPower900Minimum = 899, kPower910Minimum = 910;
+constexpr std::int32_t kChallengeMinimum = 3, kPrimeMinimum = 2;
+/** Two predicate rows must both pass before the Gear Up site can execute. */
+constexpr std::size_t kGearUpObjectiveCount = 2;
+/** Test-owned selected-character Power returned by the resolver substitute. */
+std::int32_t g_characterPower{};
 /** Test threshold crosses the 16-bit boundary to detect narrowed constants. */
 constexpr std::int32_t kMinimumValue = 70000;
 /** Fixture capacity is adjustable to test the State boundary's resolver rejection. */
@@ -461,6 +485,95 @@ void verify_character_objectives() {
     std::puts("PASS: character counter isolation, explicit zero, stale inputs and joined rollback");
 }
 
+/** Seeds the exact installed identities used by the reconstructed Reward Site catalog. */
+void reset_reward_site_fixture() {
+    state::AccountState account{};
+    account.primarySoid = kAccount;
+    account.characterCount = 1;
+    check(store::read_settings(account.settings), "load reward-site settings defaults");
+    auto& character = account.characters[0];
+    character.soid = kCharacter;
+    character.selected = true;
+    character.nextInventorySerial = 2;
+    character.inventory.count = 1;
+    character.inventory.values[0].instanceSoid = kSource;
+    character.inventory.values[0].definitionHash = kPower900Hash;
+    character.inventory.values[0].quantity = 1;
+    character.inventory.values[0].mutationSerial = 1;
+    check(store::write_account(account), "seed Reward Site account");
+    check(store::execute("DELETE FROM character_objective_values"), "clear Reward Site counters");
+    check(store::execute("DELETE FROM unlocks"), "clear Reward Site values");
+    check(
+        store::write_unlock(store::Bank::characterObjectValues, kUnlimitedPowerRow, kPower900Stage),
+        "seed first Unlimited Power stage");
+    state::Family5State family{};
+    check(store::write_family5(family), "seed Reward Site Family-5 state");
+    g_characterPower = kPower900Minimum - 1;
+    g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
+}
+
+/** Checks all supported reconstructed rows and the explicit final-stage refusal. */
+void verify_reward_sites() {
+    namespace sites = state::build_data::reward_sites;
+    sites::Definition definition{};
+    check(sites::find(kPower900Site, definition) && definition.sourceItemHash == kPower900Hash
+              && definition.successorItemHash == kGearUpHash
+              && definition.transition.completionEffect == kPower900Site,
+          "first reconstructed Reward Site row");
+    check(sites::find_source(kGearUpHash, definition) && definition.definitionIndex == kGearUpSite
+              && definition.transition.objectiveCount == kGearUpObjectiveCount,
+          "source item resolves its one Reward Site row");
+    check(!sites::find(kUnsupportedFinalSite, definition)
+              && !sites::find_source(kCryptarchHash, definition),
+          "unsupported final effects remain absent");
+
+    reset_reward_site_fixture();
+    state::PendingQuestTransition pending{};
+    check(!state::prepare_next_reward_site_transition(pending),
+          "Power below the authored threshold cannot advance");
+    g_characterPower = kPower900Minimum;
+    check(state::prepare_next_reward_site_transition(pending)
+              && pending.transition.completionEffect == kPower900Site
+              && state::commit_quest_transition(pending.transition, pending),
+          "first Reward Site advances through the shared transaction");
+
+    state::AccountState account{};
+    std::int32_t stage = 0;
+    check(store::read_account(account)
+              && account.characters[0].inventory.values[0].definitionHash == kGearUpHash
+              && store::read_unlock(store::Bank::characterObjectValues, kUnlimitedPowerRow, stage)
+              && stage == kGearUpStage,
+          "first Reward Site replaces the item and stage together");
+    check(!state::prepare_next_reward_site_transition(pending),
+          "Gear Up waits for both character counters");
+    check(store::write_character_objective(kCharacter, kChallengeCounter, kChallengeMinimum)
+              && store::write_character_objective(kCharacter, kPrimeCounter, kPrimeMinimum)
+              && state::prepare_next_reward_site_transition(pending)
+              && pending.transition.completionEffect == kGearUpSite
+              && state::commit_quest_transition(pending.transition, pending),
+          "Gear Up consumes the two retained objective counters");
+    check(store::read_account(account)
+              && account.characters[0].inventory.values[0].definitionHash == kPower910Hash
+              && store::read_unlock(store::Bank::characterObjectValues, kUnlimitedPowerRow, stage)
+              && stage == kPower910Stage,
+          "Gear Up replaces the item and stage together");
+
+    g_characterPower = kPower910Minimum - 1;
+    check(!state::prepare_next_reward_site_transition(pending),
+          "third stage preserves its distinct Power threshold");
+    g_characterPower = kPower910Minimum;
+    check(state::prepare_next_reward_site_transition(pending)
+              && pending.transition.completionEffect == kPower910Site
+              && state::commit_quest_transition(pending.transition, pending),
+          "third Reward Site reaches the final quest member");
+    check(store::read_account(account)
+              && account.characters[0].inventory.values[0].definitionHash == kCryptarchHash
+              && store::read_unlock(store::Bank::characterObjectValues, kUnlimitedPowerRow, stage)
+              && stage == kCryptarchStage && !state::prepare_next_reward_site_transition(pending),
+          "final unsupported row cannot retire the quest or invent challenge unlocks");
+    std::puts("PASS: reconstructed Reward Site lookup, execution and final-stage boundary");
+}
+
 /**
  * Exercises restart and migration against a new disposable database from the runner.
  * @param path Unique scratch database supplied by the runner.
@@ -550,22 +663,48 @@ namespace sunrise::state::build_data {
 
 /** Test catalogue substitute; production uses installed build data. */
 bool find_item_definition_index(std::uint16_t index, items::Definition& definition) noexcept {
-    if (index > 1) {
+    definition = {};
+    switch (index) {
+    case 0:
+        definition.definitionHash = kSourceHash;
+        break;
+    case 1:
+        definition.definitionHash = kSuccessorHash;
+        break;
+    case kPower900Item:
+        definition.definitionHash = kPower900Hash;
+        break;
+    case kGearUpItem:
+        definition.definitionHash = kGearUpHash;
+        break;
+    case kPower910Item:
+        definition.definitionHash = kPower910Hash;
+        break;
+    case kCryptarchItem:
+        definition.definitionHash = kCryptarchHash;
+        break;
+    default:
         return false;
     }
-    definition = {};
     definition.definitionIndex = index;
-    definition.definitionHash = index == 0 ? kSourceHash : kSuccessorHash;
     definition.bucketId = items::kPursuitBucketId;
     return true;
 }
 
 /** Test catalogue lookup for the shared inventory helpers linked into this executable. */
 bool find_item_definition_hash(std::uint32_t hash, items::Definition& definition) noexcept {
-    if (hash != kSourceHash && hash != kSuccessorHash) {
-        return false;
+    for (const std::uint16_t index : {std::uint16_t{0},
+                                      std::uint16_t{1},
+                                      kPower900Item,
+                                      kGearUpItem,
+                                      kPower910Item,
+                                      kCryptarchItem}) {
+        if (find_item_definition_index(index, definition) && definition.definitionHash == hash) {
+            return true;
+        }
     }
-    return find_item_definition_index(hash == kSourceHash ? 0 : 1, definition);
+    definition = {};
+    return false;
 }
 
 /** Native detail resolution is deliberately outside this State-only executable. */
@@ -574,6 +713,21 @@ bool find_configured_item_detail(std::uint16_t, items::details::Definition&) noe
 }
 
 } // namespace sunrise::state::build_data
+
+namespace sunrise::state::equipment::light::resolution {
+
+/** Controlled Power resolver substitute for the reconstructed-site State checks. */
+bool character_light(const AccountState& account,
+                     std::size_t characterIndex,
+                     std::int32_t& light) noexcept {
+    if (characterIndex >= account.characterCount) {
+        return false;
+    }
+    light = g_characterPower;
+    return true;
+}
+
+} // namespace sunrise::state::equipment::light::resolution
 
 namespace sunrise::core::log {
 
@@ -633,6 +787,7 @@ int main(int argc, char** argv) {
           "new in-memory store");
     verify_runtime();
     verify_character_objectives();
+    verify_reward_sites();
     verify_objective_publication();
     verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]
                                                                                 : nullptr);

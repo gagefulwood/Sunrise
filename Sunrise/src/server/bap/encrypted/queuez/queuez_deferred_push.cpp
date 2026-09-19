@@ -9,6 +9,7 @@
 #include "../../../../state/activity/destination/definition.h"
 #include "../../../../state/activity/runtime.h"
 #include "../../../../state/runtime/runtime.h"
+#include "../../../../state/runtime/state_quest_transition_runtime.h"
 #include "../internal.h"
 #include "../push/activity/activity_keepalive_push.h"
 #include "queuez_state_validation.h"
@@ -187,6 +188,61 @@ selected_character(const state::AccountState& account) noexcept {
     session.queuez = acquisition.after;
     bap::arm_account_resync_elsewhere(session);
     bap::arm_acquisition_presentation_hold(session);
+    return true;
+}
+
+/**
+ * Commits one complete reconstructed Reward Site and publishes its new investment values first.
+ * The following poll sends the Family-4 account graph containing the replacement pursuit.
+ */
+[[nodiscard]] bool consume_reward_site_transition(Session& session,
+                                                  Scratch& scratch,
+                                                  std::span<std::byte> response,
+                                                  std::size_t& written,
+                                                  bool& touchesScratch) noexcept {
+    if (!session.rewardSiteArmed || !session.queuez.family4Active
+        || GetTickCount64() < session.acquisitionPresentationUntilTick) {
+        return false;
+    }
+    state::investment::store::Transaction transaction;
+    if (!transaction.ready()) {
+        return false;
+    }
+
+    state::PendingQuestTransition pending{};
+    if (!state::prepare_next_reward_site_transition(pending)) {
+        session.rewardSiteArmed = false;
+        return false;
+    }
+    if (pending.accountSoid != session.queuez.family4RootSoid
+        || session.queuez.family5Version == (std::numeric_limits<std::int32_t>::max)()) {
+        return false;
+    }
+
+    const std::uint16_t rewardSite = pending.transition.completionEffect;
+    const std::int32_t version = session.queuez.family5Version + 1;
+    touchesScratch = true;
+    auto nextSendNonce = session.sendNonce;
+    std::size_t framedSize = 0;
+    if (!state::commit_quest_transition(pending.transition, pending)
+        || !push::append_family5_override_notification(
+            scratch, version, session.sessionKey, nextSendNonce, scratch.framed, framedSize)
+        || framedSize == 0 || framedSize > response.size() || !transaction.commit()) {
+        return false;
+    }
+
+    std::copy_n(scratch.framed.begin(), framedSize, response.begin());
+    written = framedSize;
+    middleware::secure_channel::advance_nonce(nextSendNonce);
+    session.sendNonce = nextSendNonce;
+    session.queuez.family5Version = version;
+    session.accountResyncArmed = true;
+    bap::arm_account_resync_elsewhere(session);
+
+    core::log::writef(core::log::Channel::server,
+                      core::log::Level::debug,
+                      "ev=reward_site stage=automatic result=ok site=%u",
+                      static_cast<unsigned>(rewardSite));
     return true;
 }
 
@@ -538,6 +594,7 @@ selected_character(const state::AccountState& account) noexcept {
     session.sendNonce = nextSendNonce;
     session.queuez.family5Version = version;
     session.investmentRefreshArmed = false;
+    session.rewardSiteArmed = true;
     // The client rebuilds its derived unlock state on the family-4 update that follows this.
     return true;
 }
@@ -696,6 +753,9 @@ bool consume_deferred(Session& session,
         if (published) {
             return true;
         }
+    }
+    if (consume_reward_site_transition(session, scratch, response, written, touchesScratch)) {
+        return true;
     }
     if (consume_seasonal_experience_presentation(
             session, scratch, response, written, touchesScratch)) {
