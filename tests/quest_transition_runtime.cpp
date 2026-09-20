@@ -7,6 +7,7 @@
 #include "core/logging/log.h"
 #include "middleware/encoding/bit_reader.h"
 #include "middleware/web_service/messages/family5_codec.h"
+#include "state/equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "state/investment/store_internal.h"
 #include "state/runtime/state_account_transaction_helpers.h"
 #include "state/runtime/state_quest_transition_runtime.h"
@@ -32,8 +33,14 @@ constexpr std::uint16_t kQuestRow = 12, kValueSlot = 17;
 constexpr std::uint16_t kUnresolvedCompletionEffect = 7;
 /** Test threshold crosses the 16-bit boundary to detect narrowed constants. */
 constexpr std::int32_t kMinimumValue = 70000;
+/** Unlimited Power's first retained predicate completes at equipment Power 899. */
+constexpr std::int32_t kEquipmentPowerThreshold = 899;
 /** Fixture capacity is adjustable to test the State boundary's resolver rejection. */
 std::size_t g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
+/** Controlled equipment result isolates the quest runtime's input selection. */
+std::int32_t g_equipmentPower = kEquipmentPowerThreshold;
+/** Tests can refuse equipment resolution without malformed account state. */
+bool g_equipmentPowerAvailable = true;
 
 /** @param passed Condition to enforce. @param label Identifies the failed check. */
 void check(bool passed, const char* label) {
@@ -81,6 +88,15 @@ items::QuestTransition unresolved_contract() {
     return result;
 }
 
+/** @return The fixture contract bound to the selected character's equipment Power. */
+items::QuestTransition equipment_power_contract() {
+    auto result = contract();
+    result.objectives[0] = {items::kEquipmentPowerValueSlot,
+                            kEquipmentPowerThreshold,
+                            items::QuestPredicate::Input::equipmentPower};
+    return result;
+}
+
 /** Resets only the disposable in-memory fixture between independent failure cases. */
 void reset_fixture() {
     state::AccountState account{};
@@ -107,6 +123,8 @@ void reset_fixture() {
     family.values[0] = {kValueSlot, kMinimumValue};
     check(store::write_family5(family), "seed objective input");
     g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
+    g_equipmentPower = kEquipmentPowerThreshold;
+    g_equipmentPowerAvailable = true;
 }
 
 /**
@@ -384,6 +402,36 @@ void verify_runtime() {
     std::puts("PASS: State transition, stale guards, replay and SQLite rollback");
 }
 
+/** Proves equipment Power, not a same-slot Family-5 override, controls the predicate. */
+void verify_equipment_power_input() {
+    reset_fixture();
+    state::Family5State misleading{};
+    misleading.valueCount = 1;
+    misleading.values[0] = {items::kEquipmentPowerValueSlot, kEquipmentPowerThreshold + 100};
+    check(store::write_family5(misleading), "seed misleading Power override");
+
+    const auto transition = equipment_power_contract();
+    state::PendingQuestTransition pending{};
+    g_equipmentPower = kEquipmentPowerThreshold - 1;
+    check(!state::prepare_quest_transition(kSource, transition, pending),
+          "Family-5 override completed low equipment Power");
+
+    misleading.values[0].value = 0;
+    check(store::write_family5(misleading), "lower misleading Power override");
+    g_equipmentPower = kEquipmentPowerThreshold;
+    check(state::prepare_quest_transition(kSource, transition, pending),
+          "equipment threshold did not complete");
+    g_equipmentPower = kEquipmentPowerThreshold + 1;
+    check(!state::commit_quest_transition(transition, pending),
+          "changed equipment Power did not stale the prepared transition");
+    check_unchanged();
+
+    g_equipmentPowerAvailable = false;
+    check(!state::prepare_quest_transition(kSource, transition, pending),
+          "missing equipment evaluation was accepted");
+    std::puts("PASS: equipment Power input selection, threshold and stale guard");
+}
+
 /** Checks ownership, missing values, stale counters and joined transaction rollback. */
 void verify_character_objectives() {
     reset_fixture();
@@ -597,6 +645,23 @@ std::size_t selected_character_index(const AccountState& account) noexcept {
 
 } // namespace sunrise::state::runtime::detail
 
+namespace sunrise::state::equipment::light::resolution {
+
+/** Controlled substitute proves which input the quest runtime requests. */
+bool resolve(const AccountState& account,
+             std::size_t selectedCharacterIndex,
+             Evaluation& output) noexcept {
+    output = {};
+    if (!g_equipmentPowerAvailable || selectedCharacterIndex >= account.characterCount
+        || !account.characters[selectedCharacterIndex].selected) {
+        return false;
+    }
+    output.average = g_equipmentPower;
+    return true;
+}
+
+} // namespace sunrise::state::equipment::light::resolution
+
 namespace sunrise::middleware::datagen::family4::loadout {
 
 /** Controlled resolver substitute tests rejection, not installed native row placement. */
@@ -633,6 +698,7 @@ int main(int argc, char** argv) {
                       settingsDefaults),
           "new in-memory store");
     verify_runtime();
+    verify_equipment_power_input();
     verify_character_objectives();
     verify_objective_publication();
     verify_quest_transition_catalog();

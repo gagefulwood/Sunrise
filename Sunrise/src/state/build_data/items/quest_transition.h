@@ -20,11 +20,20 @@ inline constexpr std::size_t kQuestItemIndexCapacity = kUnavailableQuestItemInde
 inline constexpr std::uint16_t kQuestValueSlotLimit = kUnlockValueSlotLimit;
 /** Transition evaluation accepts at most sixteen objective references. */
 inline constexpr std::size_t kQuestObjectiveCapacity = 16;
+/** Native condition slot 462 reads the selected character's equipped-item Power. */
+inline constexpr std::uint16_t kEquipmentPowerValueSlot = 462;
 
 /** One supported objective requires an explicit value slot to reach a signed minimum. */
 struct QuestPredicate {
-    /** Reconstructed character quests own their counted progress; comparisons use global inputs. */
-    enum class Input : std::uint8_t { family5, characterCounter };
+    /** Identifies the authoritative server input behind a native condition slot. */
+    enum class Input : std::uint8_t {
+        /** Persisted Family-5 override with the same native slot. */
+        family5,
+        /** Character-owned objective counter with the same native slot. */
+        characterCounter,
+        /** Selected character's equipped-item Power average. */
+        equipmentPower,
+    };
     std::uint16_t valueSlot{};
     std::int32_t minimumValue{};
     Input input{Input::family5};
@@ -67,7 +76,8 @@ struct QuestTransition {
         if ((index < quest.objectiveCount
              && (predicate.valueSlot >= kQuestValueSlotLimit
                  || (predicate.input != QuestPredicate::Input::family5
-                     && predicate.input != QuestPredicate::Input::characterCounter)))
+                     && predicate.input != QuestPredicate::Input::characterCounter
+                     && predicate.input != QuestPredicate::Input::equipmentPower)))
             || (index >= quest.objectiveCount && predicate != QuestPredicate{})) {
             return false;
         }

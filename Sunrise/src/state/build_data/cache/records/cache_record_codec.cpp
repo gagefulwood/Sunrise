@@ -139,9 +139,11 @@ bool decode(const QuestTransitionRecord& record, items::QuestTransition& value) 
     value.completionEffect = record.completionEffect;
     value.objectiveCount = record.objectiveCount;
     for (std::size_t index = 0; index < value.objectiveCount; ++index) {
-        const auto input = static_cast<items::QuestPredicate::Input>(record.objectives[index].input);
+        const auto input =
+            static_cast<items::QuestPredicate::Input>(record.objectives[index].input);
         if (input != items::QuestPredicate::Input::family5
-            && input != items::QuestPredicate::Input::characterCounter) {
+            && input != items::QuestPredicate::Input::characterCounter
+            && input != items::QuestPredicate::Input::equipmentPower) {
             return false;
         }
         value.objectives[index] = {

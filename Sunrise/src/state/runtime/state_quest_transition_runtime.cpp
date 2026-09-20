@@ -2,6 +2,7 @@
 
 #include <limits>
 
+#include "../equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "../investment/store_internal.h"
 #include "state_account_transaction_helpers.h"
 
@@ -17,29 +18,43 @@ using namespace runtime::detail;
 constexpr std::uint8_t kPursuitEquipmentSlot = 0;
 
 /**
- * Resolves counted progress by character identity, never by an account-wide fallback.
+ * Resolves each native predicate from its authoritative server state.
  * @param transition Validated character quest contract.
- * @param characterSoid Selected character's stable identity.
+ * @param account Validated account containing the selected character and equipment.
+ * @param characterIndex Selected character row.
  * @param family Receives resolved predicate inputs; used only on success.
  * @return False for absent, duplicate or unreadable inputs.
  */
 [[nodiscard]] bool resolve_inputs(const items::QuestTransition& transition,
-                                  std::uint64_t characterSoid,
+                                  const AccountState& account,
+                                  std::size_t characterIndex,
                                   Family5State& family) noexcept {
     Family5State global{};
+    equipment::light::Evaluation equipmentPower{};
+    bool globalLoaded = false;
+    bool equipmentPowerLoaded = false;
     family = {};
-    if (!investment::store::read_family5(global)) {
-        return false;
-    }
     for (std::size_t index = 0; index < transition.objectiveCount; ++index) {
         const auto& predicate = transition.objectives[index];
         std::optional<std::int32_t> value;
         if (predicate.input == items::QuestPredicate::Input::characterCounter) {
             if (!investment::store::read_character_objective(
-                    characterSoid, predicate.valueSlot, value)) {
+                    account.characters[characterIndex].soid, predicate.valueSlot, value)) {
                 return false;
             }
-        } else {
+        } else if (predicate.input == items::QuestPredicate::Input::equipmentPower) {
+            if (!equipmentPowerLoaded
+                && !equipment::light::resolution::resolve(
+                    account, characterIndex, equipmentPower)) {
+                return false;
+            }
+            equipmentPowerLoaded = true;
+            value = equipmentPower.average;
+        } else if (predicate.input == items::QuestPredicate::Input::family5) {
+            if (!globalLoaded && !investment::store::read_family5(global)) {
+                return false;
+            }
+            globalLoaded = true;
             for (std::size_t row = 0; row < global.valueCount; ++row) {
                 if (global.values[row].slot == predicate.valueSlot) {
                     if (value.has_value()) {
@@ -131,7 +146,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         return false;
     }
     const auto& character = before.characters[characterIndex];
-    if (!resolve_inputs(transition, character.soid, family)
+    if (!resolve_inputs(transition, before, characterIndex, family)
         || !items::complete(transition, family)) {
         return false;
     }
