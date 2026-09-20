@@ -17,6 +17,8 @@ using namespace runtime::detail;
 
 /** Pursuits have no equipment slot; the loadout resolver publishes them at slot zero. */
 constexpr std::uint8_t kPursuitEquipmentSlot = 0;
+/** Supported quest completions replace one item stage and advance one character-object row. */
+constexpr std::size_t kQuestCompletionOperationCount = 1;
 
 /**
  * Resolves the currently supported one-for-one quest completion shape.
@@ -30,8 +32,9 @@ resolve_completion(const items::QuestTransition& transition,
                    reward_sites::ItemProgression& item,
                    reward_sites::CharacterObjectTransition& characterObject) noexcept {
     reward_sites::Definition site{};
-    std::array<reward_sites::ItemProgression, 1> itemRows{};
-    std::array<reward_sites::CharacterObjectTransition, 1> characterRows{};
+    std::array<reward_sites::ItemProgression, kQuestCompletionOperationCount> itemRows{};
+    std::array<reward_sites::CharacterObjectTransition, kQuestCompletionOperationCount>
+        characterRows{};
     std::size_t itemCount = 0;
     std::size_t characterCount = 0;
     if (transition.completionEffect == items::kUnavailableQuestCompletionEffect
