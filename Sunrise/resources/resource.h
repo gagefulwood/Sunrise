@@ -47,3 +47,8 @@
 /** Account preferences have their own schema and seed data in the save. */
 #define IDR_ACCOUNT_SETTINGS_SCHEMA 109
 #define IDR_ACCOUNT_SETTINGS_DEFAULTS 110
+
+/** Reward Site table shape is embedded so startup validates it before publication. */
+#define IDR_REWARD_SITE_SCHEMA 111
+/** Build-bound Reward Site definitions remain source-controlled static content. */
+#define IDR_REWARD_SITE_DEFINITIONS 112

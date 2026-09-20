@@ -636,6 +636,7 @@
     <ClCompile Include="src\state\activity_sdk\generated_world\generated_world_binding.cpp" />
     <ClCompile Include="src\state\activity_sdk\generated_world\generated_world_store.cpp" />
     <ClCompile Include="src\state\build_data\build_data_runtime.cpp" />
+    <ClCompile Include="src\state\build_data\reward_sites\reward_site_catalog.cpp" />
     <ClCompile Include="src\state\build_data\runtime\persistence\build_data_persistence.cpp" />
     <ClCompile Include="src\state\build_data\runtime\persistence\publication_transaction.cpp" />
     <ClCompile Include="src\state\build_data\cache\read\cache_file_reader.cpp" />
@@ -1507,6 +1508,8 @@
     <ClInclude Include="src\state\activity_sdk\generated_world\catalog_manifest_internal.h" />
     <ClInclude Include="src\state\build_data\definition.h" />
     <ClInclude Include="src\state\build_data\runtime.h" />
+    <ClInclude Include="src\state\build_data\reward_sites\definition.h" />
+    <ClInclude Include="src\state\build_data\reward_sites\reward_site_catalog.h" />
     <ClInclude Include="src\state\build_data\table.h" />
     <ClInclude Include="src\state\build_data\scenarios\scenario_catalog.h" />
     <ClInclude Include="src\state\build_data\spawn_sets\spawn_set_catalog.h" />
@@ -2170,6 +2173,8 @@
     <None Include="vendor\sqlite\NOTICE.txt" />
     <None Include="resources\database\investment_schema.sql" />
     <None Include="resources\database\investment_defaults.sql" />
+    <None Include="resources\database\reward_site_schema.sql" />
+    <None Include="resources\database\reward_site_definitions.sql" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\state\investment\investment_settings_store.cpp" />

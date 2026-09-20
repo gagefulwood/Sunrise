@@ -4,6 +4,7 @@
 #include <span>
 #include <string_view>
 
+#include "../../../resources/resource.h"
 #include "../../core/filesystem/path.h"
 #include "../content/content_catalog.h"
 #include "../gameplay/external/entity_position_profiles.h"
@@ -21,6 +22,7 @@
 #include "nodes/node_catalog.h"
 #include "progressions/progression_catalog.h"
 #include "records/record_catalog.h"
+#include "reward_sites/reward_site_catalog.h"
 #include "runtime.h"
 #include "runtime/build_data_catalog_runtime.h"
 #include "runtime/domain_markers.h"
@@ -39,6 +41,24 @@ namespace {
 constexpr std::wstring_view kCacheDirectorySuffix = L"\\cache";
 /** One reusable file stores all extracted build mappings. */
 constexpr std::wstring_view kCacheFileSuffix = L"\\cache\\build_data.bin";
+
+/** Resource views borrow bytes from the loaded DLL for startup validation only. */
+bool resource(void* module, int identifier, std::string_view& output) noexcept {
+    const auto loadedModule = static_cast<HMODULE>(module);
+    const HRSRC found = FindResourceW(loadedModule, MAKEINTRESOURCEW(identifier), RT_RCDATA);
+    if (found == nullptr) {
+        return false;
+    }
+    const DWORD size = SizeofResource(loadedModule, found);
+    const HGLOBAL loaded = LoadResource(loadedModule, found);
+    const auto* bytes =
+        loaded != nullptr ? static_cast<const char*>(LockResource(loaded)) : nullptr;
+    if (bytes == nullptr || size == 0) {
+        return false;
+    }
+    output = {bytes, size};
+    return true;
+}
 
 } // namespace
 
@@ -66,6 +86,17 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         || !core::path::append(persistenceState.cachePath, kCacheFileSuffix)
         || !cache::current_build_identity(configuredEquipmentHash,
                                           persistenceState.buildIdentity)) {
+        runtime::persistence::clear_locked(persistenceState);
+        ReleaseSRWLockExclusive(&persistenceState.lock);
+        return false;
+    }
+    std::string_view rewardSiteSchema;
+    std::string_view rewardSiteDefinitions;
+    if (!resource(module, IDR_REWARD_SITE_SCHEMA, rewardSiteSchema)
+        || !resource(module, IDR_REWARD_SITE_DEFINITIONS, rewardSiteDefinitions)
+        || !reward_sites::load(
+            persistenceState.buildIdentity, rewardSiteSchema, rewardSiteDefinitions)) {
+        runtime::clear_catalogs();
         runtime::persistence::clear_locked(persistenceState);
         ReleaseSRWLockExclusive(&persistenceState.lock);
         return false;

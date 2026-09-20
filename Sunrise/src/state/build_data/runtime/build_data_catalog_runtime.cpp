@@ -14,6 +14,7 @@
 #include "../nodes/node_catalog.h"
 #include "../progressions/progression_catalog.h"
 #include "../records/record_catalog.h"
+#include "../reward_sites/reward_site_catalog.h"
 #include "../runtime.h"
 #include "../scenarios/scenario_catalog.h"
 #include "../season_pass/season_pass_catalog.h"
@@ -374,6 +375,7 @@ void clear_catalogs() noexcept {
     season_pass::clear();
     bounties::clear();
     records::clear();
+    reward_sites::clear();
     nodes::clear();
     sobjects::clear();
     scenarios::clear();

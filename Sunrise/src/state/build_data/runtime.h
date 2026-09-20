@@ -23,6 +23,7 @@
 #include "nodes/definition.h"
 #include "progressions/definition.h"
 #include "records/definition.h"
+#include "reward_sites/reward_site_catalog.h"
 #include "scenarios/definition.h"
 #include "season_pass/definition.h"
 #include "sobjects/sobject_catalog.h"
