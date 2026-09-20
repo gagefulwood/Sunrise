@@ -87,6 +87,13 @@ std::vector<Definition> g_definitions;
 std::vector<ItemProgression> g_itemProgressions;
 std::vector<CharacterObjectTransition> g_characterObjectTransitions;
 
+/** Holds an unpublished catalog until every row passes validation. */
+struct StagedCatalog {
+    std::vector<Definition> sites;
+    std::vector<ItemProgression> itemProgressions;
+    std::vector<CharacterObjectTransition> characterObjectTransitions;
+};
+
 /** Owns the startup-only SQLite connection until validation completes. */
 class Database final {
 public:
@@ -220,6 +227,19 @@ private:
 }
 
 /**
+ * Decodes one site row from kSiteQuery.
+ * @param query Query positioned on a row.
+ * @param row Receives the typed site definition.
+ * @return False when any selected field is absent or invalid.
+ */
+[[nodiscard]] bool read_site_row(const Statement& query, Definition& row) noexcept {
+    std::string_view origin;
+    return query.integer(kSiteIndexColumn, row.siteIndex)
+           && query.text(kSiteProvenanceColumn, origin)
+           && (row.provenance = provenance(origin)) != Provenance::none;
+}
+
+/**
  * Finds one mutable definition in an ordered staging bank.
  * @param definitions Definitions sorted by site index.
  * @param siteIndex Native Reward Site index.
@@ -251,10 +271,7 @@ private:
     int result = query.step();
     while (result == SQLITE_ROW) {
         Definition row{};
-        std::string_view origin;
-        if (!query.integer(kSiteIndexColumn, row.siteIndex)
-            || !query.text(kSiteProvenanceColumn, origin)
-            || (row.provenance = provenance(origin)) == Provenance::none
+        if (!read_site_row(query, row)
             || (!output.empty() && output.back().siteIndex >= row.siteIndex)) {
             return false;
         }
@@ -262,6 +279,43 @@ private:
         result = query.step();
     }
     return result == SQLITE_DONE && !output.empty();
+}
+
+/**
+ * Decodes one item progression row from kItemProgressionQuery.
+ * @param query Query positioned on a row.
+ * @param siteIndex Receives the owning Reward Site index.
+ * @param ordinal Receives the operation ordinal.
+ * @param row Receives the typed item progression.
+ * @return False when any selected field is absent or out of range.
+ */
+[[nodiscard]] bool read_item_progression_row(const Statement& query,
+                                             std::uint16_t& siteIndex,
+                                             std::uint16_t& ordinal,
+                                             ItemProgression& row) noexcept {
+    return query.integer(kItemSiteIndexColumn, siteIndex)
+           && query.integer(kItemOrdinalColumn, ordinal)
+           && query.integer(kSourceItemIndexColumn, row.sourceItemIndex)
+           && query.integer(kSourceItemHashColumn, row.sourceItemHash)
+           && query.integer(kSuccessorItemIndexColumn, row.successorItemIndex)
+           && query.integer(kSuccessorItemHashColumn, row.successorItemHash);
+}
+
+/**
+ * Checks one item progression against its owning site and installed item domain.
+ * @param site Owning site, or null when the query names no site.
+ * @param ordinal Operation ordinal from SQLite.
+ * @param row Decoded item progression.
+ * @return True when the row is the site's next valid operation.
+ */
+[[nodiscard]] bool valid_item_progression(const Definition* site,
+                                          std::uint16_t ordinal,
+                                          const ItemProgression& row) noexcept {
+    return site != nullptr && ordinal == site->itemProgressionCount
+           && site->itemProgressionCount != (std::numeric_limits<std::uint16_t>::max)()
+           && row.sourceItemIndex < items::kDefinitionCapacity
+           && row.successorItemIndex < items::kDefinitionCapacity && row.sourceItemHash != 0
+           && row.successorItemHash != 0;
 }
 
 /**
@@ -285,20 +339,11 @@ private:
         std::uint16_t siteIndex{};
         std::uint16_t ordinal{};
         ItemProgression row{};
-        if (!query.integer(kItemSiteIndexColumn, siteIndex)
-            || !query.integer(kItemOrdinalColumn, ordinal)
-            || !query.integer(kSourceItemIndexColumn, row.sourceItemIndex)
-            || !query.integer(kSourceItemHashColumn, row.sourceItemHash)
-            || !query.integer(kSuccessorItemIndexColumn, row.successorItemIndex)
-            || !query.integer(kSuccessorItemHashColumn, row.successorItemHash)) {
+        if (!read_item_progression_row(query, siteIndex, ordinal, row)) {
             return false;
         }
         Definition* site = find_site(sites, siteIndex);
-        if (site == nullptr || ordinal != site->itemProgressionCount
-            || site->itemProgressionCount == (std::numeric_limits<std::uint16_t>::max)()
-            || row.sourceItemIndex >= items::kDefinitionCapacity
-            || row.successorItemIndex >= items::kDefinitionCapacity || row.sourceItemHash == 0
-            || row.successorItemHash == 0) {
+        if (!valid_item_progression(site, ordinal, row)) {
             return false;
         }
         if (site->itemProgressionCount == 0) {
@@ -309,6 +354,40 @@ private:
         result = query.step();
     }
     return result == SQLITE_DONE;
+}
+
+/**
+ * Decodes one character-object row from kCharacterObjectTransitionQuery.
+ * @param query Query positioned on a row.
+ * @param siteIndex Receives the owning Reward Site index.
+ * @param ordinal Receives the operation ordinal.
+ * @param row Receives the typed character-object transition.
+ * @return False when any selected field is absent or out of range.
+ */
+[[nodiscard]] bool read_character_object_transition_row(const Statement& query,
+                                                        std::uint16_t& siteIndex,
+                                                        std::uint16_t& ordinal,
+                                                        CharacterObjectTransition& row) noexcept {
+    return query.integer(kCharacterSiteIndexColumn, siteIndex)
+           && query.integer(kCharacterOrdinalColumn, ordinal)
+           && query.integer(kCharacterRowIndexColumn, row.rowIndex)
+           && query.integer(kCharacterExpectedValueColumn, row.expectedValue)
+           && query.integer(kCharacterNextValueColumn, row.nextValue);
+}
+
+/**
+ * Checks one character-object transition against its owning site and state bank.
+ * @param site Owning site, or null when the query names no site.
+ * @param ordinal Operation ordinal from SQLite.
+ * @param row Decoded character-object transition.
+ * @return True when the row is the site's next valid state operation.
+ */
+[[nodiscard]] bool valid_character_object_transition(
+    const Definition* site, std::uint16_t ordinal, const CharacterObjectTransition& row) noexcept {
+    return site != nullptr && ordinal == site->characterObjectTransitionCount
+           && site->characterObjectTransitionCount != (std::numeric_limits<std::uint16_t>::max)()
+           && row.rowIndex < unlocks::kCharacterObjectValueCapacity
+           && row.expectedValue != row.nextValue;
 }
 
 /**
@@ -333,18 +412,11 @@ read_character_object_transitions(sqlite3* database,
         std::uint16_t siteIndex{};
         std::uint16_t ordinal{};
         CharacterObjectTransition row{};
-        if (!query.integer(kCharacterSiteIndexColumn, siteIndex)
-            || !query.integer(kCharacterOrdinalColumn, ordinal)
-            || !query.integer(kCharacterRowIndexColumn, row.rowIndex)
-            || !query.integer(kCharacterExpectedValueColumn, row.expectedValue)
-            || !query.integer(kCharacterNextValueColumn, row.nextValue)) {
+        if (!read_character_object_transition_row(query, siteIndex, ordinal, row)) {
             return false;
         }
         Definition* site = find_site(sites, siteIndex);
-        if (site == nullptr || ordinal != site->characterObjectTransitionCount
-            || site->characterObjectTransitionCount == (std::numeric_limits<std::uint16_t>::max)()
-            || row.rowIndex >= unlocks::kCharacterObjectValueCapacity
-            || row.expectedValue == row.nextValue) {
+        if (!valid_character_object_transition(site, ordinal, row)) {
             return false;
         }
         if (site->characterObjectTransitionCount == 0) {
@@ -386,6 +458,57 @@ read_character_object_transitions(sqlite3* database,
 }
 
 /**
+ * Builds the in-memory database from the complete source-controlled scripts.
+ * @param database Empty startup database.
+ * @param schema Complete schema script.
+ * @param definitions Complete definition script.
+ * @return False when setup or either script fails; failed script writes are rolled back.
+ */
+[[nodiscard]] bool create_database(Database& database,
+                                   std::string_view schema,
+                                   std::string_view definitions) noexcept {
+    if (!database.open() || !database.execute("PRAGMA foreign_keys=ON")
+        || !database.execute("BEGIN IMMEDIATE")) {
+        return false;
+    }
+    if (database.execute(schema) && database.execute(definitions) && database.execute("COMMIT")) {
+        return true;
+    }
+    (void)database.execute("ROLLBACK");
+    return false;
+}
+
+/**
+ * Reads and validates all rows for one executable build.
+ * @param database Open catalog database.
+ * @param build Active executable identity.
+ * @param output Receives the unpublished catalog.
+ * @return False when any catalog contract fails.
+ */
+[[nodiscard]] bool
+read_catalog(sqlite3* database, const BuildIdentity& build, StagedCatalog& output) noexcept {
+    return schema_valid(database) && read_sites(database, build, output.sites)
+           && read_item_progressions(database, build, output.sites, output.itemProgressions)
+           && read_character_object_transitions(
+               database, build, output.sites, output.characterObjectTransitions)
+           && every_site_has_an_effect(output.sites);
+}
+
+/**
+ * Checks one item progression against the installed item catalog.
+ * @param row Authored item replacement.
+ * @return True when both indices still name their authored hashes.
+ */
+[[nodiscard]] bool installed_items_match(const ItemProgression& row) noexcept {
+    items::Definition source{};
+    items::Definition successor{};
+    return items::find_index(row.sourceItemIndex, source)
+           && items::find_index(row.successorItemIndex, successor)
+           && source.definitionHash == row.sourceItemHash
+           && successor.definitionHash == row.successorItemHash;
+}
+
+/**
  * Copies one current catalog range without exposing the backing vectors.
  * @tparam Row Typed operation row.
  * @param bank Published operation bank.
@@ -423,31 +546,18 @@ bool load(const BuildIdentity& build,
           std::string_view schema,
           std::string_view definitions) noexcept {
     Database database;
-    if (!database.open() || !database.execute("PRAGMA foreign_keys=ON")
-        || !database.execute("BEGIN IMMEDIATE")) {
+    if (!create_database(database, schema, definitions)) {
         return false;
     }
-    if (!database.execute(schema) || !database.execute(definitions)
-        || !database.execute("COMMIT")) {
-        (void)database.execute("ROLLBACK");
-        return false;
-    }
-
-    std::vector<Definition> loadedSites;
-    std::vector<ItemProgression> loadedItemProgressions;
-    std::vector<CharacterObjectTransition> loadedCharacterObjectTransitions;
-    if (!schema_valid(database.get()) || !read_sites(database.get(), build, loadedSites)
-        || !read_item_progressions(database.get(), build, loadedSites, loadedItemProgressions)
-        || !read_character_object_transitions(
-            database.get(), build, loadedSites, loadedCharacterObjectTransitions)
-        || !every_site_has_an_effect(loadedSites) || !database.close()) {
+    StagedCatalog loaded;
+    if (!read_catalog(database.get(), build, loaded) || !database.close()) {
         return false;
     }
 
     const std::lock_guard guard(g_lock);
-    g_definitions = std::move(loadedSites);
-    g_itemProgressions = std::move(loadedItemProgressions);
-    g_characterObjectTransitions = std::move(loadedCharacterObjectTransitions);
+    g_definitions = std::move(loaded.sites);
+    g_itemProgressions = std::move(loaded.itemProgressions);
+    g_characterObjectTransitions = std::move(loaded.characterObjectTransitions);
     return true;
 }
 
@@ -506,13 +616,7 @@ bool item_progressions(const Definition& definition,
         }
     }
     for (std::size_t index = 0; index < count; ++index) {
-        items::Definition source{};
-        items::Definition successor{};
-        const ItemProgression& row = output[index];
-        if (!items::find_index(row.sourceItemIndex, source)
-            || !items::find_index(row.successorItemIndex, successor)
-            || source.definitionHash != row.sourceItemHash
-            || successor.definitionHash != row.successorItemHash) {
+        if (!installed_items_match(output[index])) {
             std::fill_n(output.begin(), count, ItemProgression{});
             count = 0;
             return false;
