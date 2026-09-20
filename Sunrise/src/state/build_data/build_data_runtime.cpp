@@ -42,7 +42,13 @@ constexpr std::wstring_view kCacheDirectorySuffix = L"\\cache";
 /** One reusable file stores all extracted build mappings. */
 constexpr std::wstring_view kCacheFileSuffix = L"\\cache\\build_data.bin";
 
-/** Resource views borrow bytes from the loaded DLL for startup validation only. */
+/**
+ * Borrows one embedded resource for startup validation.
+ * @param module Loaded Sunrise module.
+ * @param identifier Numeric resource identifier.
+ * @param output Receives bytes owned by the loaded module.
+ * @return False when the resource is absent or empty.
+ */
 bool resource(void* module, int identifier, std::string_view& output) noexcept {
     const auto loadedModule = static_cast<HMODULE>(module);
     const HRSRC found = FindResourceW(loadedModule, MAKEINTRESOURCEW(identifier), RT_RCDATA);
@@ -58,6 +64,20 @@ bool resource(void* module, int identifier, std::string_view& output) noexcept {
     }
     output = {bytes, size};
     return true;
+}
+
+/**
+ * Loads embedded Reward Site content for one executable build.
+ * @param module Loaded Sunrise module containing both SQL resources.
+ * @param build Active executable identity.
+ * @return False when either resource or the validated catalog cannot be loaded.
+ */
+[[nodiscard]] bool load_reward_sites(void* module, const BuildIdentity& build) noexcept {
+    std::string_view schema;
+    std::string_view definitions;
+    return resource(module, IDR_REWARD_SITE_SCHEMA, schema)
+           && resource(module, IDR_REWARD_SITE_DEFINITIONS, definitions)
+           && reward_sites::load(build, schema, definitions);
 }
 
 } // namespace
@@ -90,12 +110,7 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         ReleaseSRWLockExclusive(&persistenceState.lock);
         return false;
     }
-    std::string_view rewardSiteSchema;
-    std::string_view rewardSiteDefinitions;
-    if (!resource(module, IDR_REWARD_SITE_SCHEMA, rewardSiteSchema)
-        || !resource(module, IDR_REWARD_SITE_DEFINITIONS, rewardSiteDefinitions)
-        || !reward_sites::load(
-            persistenceState.buildIdentity, rewardSiteSchema, rewardSiteDefinitions)) {
+    if (!load_reward_sites(module, persistenceState.buildIdentity)) {
         runtime::clear_catalogs();
         runtime::persistence::clear_locked(persistenceState);
         ReleaseSRWLockExclusive(&persistenceState.lock);

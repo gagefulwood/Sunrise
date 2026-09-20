@@ -23,6 +23,10 @@ constexpr int kSchemaVersion = 1;
 constexpr int kCompleteSqlText = -1;
 /** Build-filtered queries bind executable timestamp first and image size second. */
 constexpr int kImageTimestampParameter = 1, kImageSizeParameter = 2;
+/** Recovered rows use this constrained SQLite provenance value. */
+constexpr std::string_view kRecoveredProvenance = "recovered";
+/** Evidence-backed rows use this constrained SQLite provenance value. */
+constexpr std::string_view kReconstructedProvenance = "reconstructed";
 /** Site rows sort by wire index so binary lookup stays deterministic. */
 constexpr char kSiteQuery[] = "SELECT site_index,provenance FROM reward_sites "
                               "WHERE image_timestamp=?1 AND image_size=?2 ORDER BY site_index";
@@ -39,26 +43,39 @@ constexpr char kCharacterObjectTransitionQuery[] =
 
 /** Selected columns stay aligned with kSiteQuery. */
 enum SiteColumn : int {
+    /** Site index is the first selected column. */
     kSiteIndexColumn,
+    /** Provenance is the second selected column. */
     kSiteProvenanceColumn,
 };
 
 /** Selected columns stay aligned with kItemProgressionQuery. */
 enum ItemProgressionColumn : int {
+    /** Site index is the first selected column. */
     kItemSiteIndexColumn,
+    /** Operation ordinal is the second selected column. */
     kItemOrdinalColumn,
+    /** Source item index is the third selected column. */
     kSourceItemIndexColumn,
+    /** Source item hash is the fourth selected column. */
     kSourceItemHashColumn,
+    /** Successor item index is the fifth selected column. */
     kSuccessorItemIndexColumn,
+    /** Successor item hash is the sixth selected column. */
     kSuccessorItemHashColumn,
 };
 
 /** Selected columns stay aligned with kCharacterObjectTransitionQuery. */
 enum CharacterObjectTransitionColumn : int {
+    /** Site index is the first selected column. */
     kCharacterSiteIndexColumn,
+    /** Operation ordinal is the second selected column. */
     kCharacterOrdinalColumn,
+    /** Character-object row is the third selected column. */
     kCharacterRowIndexColumn,
+    /** Expected value is the fourth selected column. */
     kCharacterExpectedValueColumn,
+    /** Replacement value is the fifth selected column. */
     kCharacterNextValueColumn,
 };
 
@@ -144,7 +161,13 @@ public:
         return value_ != nullptr ? sqlite3_step(value_) : SQLITE_ERROR;
     }
 
-    /** Reads one SQL integer without narrowing it into the requested type. */
+    /**
+     * Reads one SQL integer without narrowing it into the requested type.
+     * @tparam T Integral destination type.
+     * @param column Zero-based result-column index.
+     * @param output Receives the checked value; unchanged on failure.
+     * @return False for a null statement, non-integer column, or out-of-range value.
+     */
     template <typename T> [[nodiscard]] bool integer(int column, T& output) const noexcept {
         static_assert(std::is_integral_v<T>);
         if (value_ == nullptr || sqlite3_column_type(value_, column) != SQLITE_INTEGER) {
@@ -181,16 +204,27 @@ private:
     sqlite3_stmt* value_{};
 };
 
+/**
+ * Maps one constrained SQLite provenance value.
+ * @param value Stored provenance spelling.
+ * @return The matching provenance, or none for an unknown value.
+ */
 [[nodiscard]] Provenance provenance(std::string_view value) noexcept {
-    if (value == "recovered") {
+    if (value == kRecoveredProvenance) {
         return Provenance::recovered;
     }
-    if (value == "reconstructed") {
+    if (value == kReconstructedProvenance) {
         return Provenance::reconstructed;
     }
     return Provenance::none;
 }
 
+/**
+ * Finds one mutable definition in an ordered staging bank.
+ * @param definitions Definitions sorted by site index.
+ * @param siteIndex Native Reward Site index.
+ * @return The matching row, or null when absent.
+ */
 [[nodiscard]] Definition* find_site(std::vector<Definition>& definitions,
                                     std::uint16_t siteIndex) noexcept {
     const auto found = std::lower_bound(
@@ -200,7 +234,13 @@ private:
     return found != definitions.end() && found->siteIndex == siteIndex ? &*found : nullptr;
 }
 
-/** Reads the active build's sites in canonical lookup order. */
+/**
+ * Reads the active build's sites in canonical lookup order.
+ * @param database Open catalog database.
+ * @param build Active executable identity.
+ * @param output Receives ordered definitions; unchanged rows remain on failure.
+ * @return False for query failure, invalid provenance, duplicates, or an empty result.
+ */
 [[nodiscard]] bool read_sites(sqlite3* database,
                               const BuildIdentity& build,
                               std::vector<Definition>& output) noexcept {
@@ -224,7 +264,14 @@ private:
     return result == SQLITE_DONE && !output.empty();
 }
 
-/** Reads item progression rows and rejects ordinal gaps or invalid item identities. */
+/**
+ * Reads item progression rows and rejects ordinal gaps or invalid item identities.
+ * @param database Open catalog database.
+ * @param build Active executable identity.
+ * @param sites Ordered definitions whose operation ranges are filled in place.
+ * @param output Receives typed progression rows.
+ * @return False for query failure, missing sites, ordinal gaps, or invalid identities.
+ */
 [[nodiscard]] bool read_item_progressions(sqlite3* database,
                                           const BuildIdentity& build,
                                           std::vector<Definition>& sites,
@@ -264,7 +311,14 @@ private:
     return result == SQLITE_DONE;
 }
 
-/** Reads selected-character transitions and rejects ordinal gaps or no-op writes. */
+/**
+ * Reads selected-character transitions and rejects ordinal gaps or no-op writes.
+ * @param database Open catalog database.
+ * @param build Active executable identity.
+ * @param sites Ordered definitions whose operation ranges are filled in place.
+ * @param output Receives typed character-object transitions.
+ * @return False for query failure, missing sites, ordinal gaps, or invalid rows.
+ */
 [[nodiscard]] bool
 read_character_object_transitions(sqlite3* database,
                                   const BuildIdentity& build,
@@ -303,6 +357,11 @@ read_character_object_transitions(sqlite3* database,
     return result == SQLITE_DONE;
 }
 
+/**
+ * Checks the schema version and all foreign-key references.
+ * @param database Open catalog database.
+ * @return True when the schema and definitions satisfy both checks.
+ */
 [[nodiscard]] bool schema_valid(sqlite3* database) noexcept {
     Statement version(database, "PRAGMA user_version");
     int schemaVersion{};
@@ -314,6 +373,11 @@ read_character_object_transitions(sqlite3* database,
     return foreignKeys.step() == SQLITE_DONE;
 }
 
+/**
+ * Rejects definitions that would execute no typed operation.
+ * @param definitions Fully loaded site definitions.
+ * @return True when every site owns at least one operation.
+ */
 [[nodiscard]] bool every_site_has_an_effect(std::span<const Definition> definitions) noexcept {
     return std::all_of(definitions.begin(), definitions.end(), [](const Definition& definition) {
         return definition.itemProgressionCount != 0
@@ -321,7 +385,16 @@ read_character_object_transitions(sqlite3* database,
     });
 }
 
-/** Copies one current catalog range without exposing the backing vectors. */
+/**
+ * Copies one current catalog range without exposing the backing vectors.
+ * @tparam Row Typed operation row.
+ * @param bank Published operation bank.
+ * @param offset First row owned by the definition.
+ * @param rows Number of rows owned by the definition.
+ * @param output Caller-owned destination.
+ * @param count Receives the copied row count, or zero on failure.
+ * @return False when the source range or destination capacity is invalid.
+ */
 template <typename Row>
 [[nodiscard]] bool copy_range(std::span<const Row> bank,
                               std::size_t offset,
@@ -339,7 +412,13 @@ template <typename Row>
 
 } // namespace
 
-/** Loads, validates, closes, and publishes one build's static Reward Site content. */
+/**
+ * Loads, validates, closes, and publishes one build's static Reward Site content.
+ * @param build Active executable identity.
+ * @param schema Complete source-controlled schema script.
+ * @param definitions Complete source-controlled definition script.
+ * @return True after the validated catalog replaces the published catalog.
+ */
 bool load(const BuildIdentity& build,
           std::string_view schema,
           std::string_view definitions) noexcept {
@@ -385,7 +464,12 @@ bool ready() noexcept {
     return !g_definitions.empty();
 }
 
-/** Finds one site by native index. */
+/**
+ * Finds one site by native index.
+ * @param siteIndex Native Reward Site index.
+ * @param definition Receives the matching site; cleared when absent.
+ * @return True when the published catalog contains the site.
+ */
 bool find(std::uint16_t siteIndex, Definition& definition) noexcept {
     definition = {};
     const std::shared_lock guard(g_lock);
@@ -401,7 +485,13 @@ bool find(std::uint16_t siteIndex, Definition& definition) noexcept {
     return true;
 }
 
-/** Copies and validates one site's item progression range. */
+/**
+ * Copies and validates one site's item progression range.
+ * @param definition Site returned by find().
+ * @param output Caller-owned operation storage.
+ * @param count Receives the copied count, or zero on failure.
+ * @return True when every installed item index still matches its authored hash.
+ */
 bool item_progressions(const Definition& definition,
                        std::span<ItemProgression> output,
                        std::size_t& count) noexcept {
@@ -431,7 +521,13 @@ bool item_progressions(const Definition& definition,
     return true;
 }
 
-/** Copies one site's selected-character object transition range. */
+/**
+ * Copies one site's selected-character object transition range.
+ * @param definition Site returned by find().
+ * @param output Caller-owned operation storage.
+ * @param count Receives the copied count, or zero on failure.
+ * @return True when the published catalog still contains the complete range.
+ */
 bool character_object_transitions(const Definition& definition,
                                   std::span<CharacterObjectTransition> output,
                                   std::size_t& count) noexcept {

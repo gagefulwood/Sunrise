@@ -4,6 +4,7 @@ PRAGMA user_version = 1;
 
 -- PE identity fields are unsigned 32-bit values; zero identifies no supported image.
 -- Site index 65535 is the native absent-reference sentinel.
+-- Provenance distinguishes recovered content from evidence-backed reconstruction.
 CREATE TABLE reward_sites (
     image_timestamp INTEGER NOT NULL CHECK (image_timestamp BETWEEN 1 AND 4294967295),
     image_size INTEGER NOT NULL CHECK (image_size BETWEEN 1 AND 4294967295),

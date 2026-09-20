@@ -50,7 +50,12 @@ bool validItemRows = true;
 
 namespace sunrise::state::build_data::items {
 
-/** Supplies the two installed item identities needed by this isolated catalog check. */
+/**
+ * Supplies the two installed item identities needed by this isolated catalog check.
+ * @param definitionIndex Installed item-table index.
+ * @param definition Receives the matching identity; cleared when absent.
+ * @return True when the fixture contains the requested row.
+ */
 bool find_index(std::uint16_t definitionIndex, Definition& definition) noexcept {
     definition = {};
     if (definitionIndex == test_data::kSourceItemIndex) {
@@ -83,7 +88,12 @@ void check(bool condition, const char* message) {
     }
 }
 
-/** Reads one source-controlled SQL resource without changing it. */
+/**
+ * Reads one source-controlled SQL resource without changing it.
+ * @param directory Resource database directory.
+ * @param name SQL resource filename.
+ * @return Complete file contents.
+ */
 std::string read_file(const char* directory, const char* name) {
     const std::string path = std::string(directory) + "/" + name;
     std::FILE* stream = nullptr;
@@ -100,7 +110,11 @@ std::string read_file(const char* directory, const char* name) {
     return contents;
 }
 
-/** Verifies build binding, typed resolution, failed-load atomicity, and clear semantics. */
+/**
+ * Verifies build binding, typed resolution, failed-load atomicity, and clear semantics.
+ * @param schema Complete schema script.
+ * @param definitions Complete definition script.
+ */
 void verify_catalog(std::string_view schema, std::string_view definitions) {
     namespace sites = sunrise::state::build_data::reward_sites;
 
