@@ -494,11 +494,6 @@ read_catalog(sqlite3* database, const BuildIdentity& build, StagedCatalog& outpu
            && every_site_has_an_effect(output.sites);
 }
 
-/**
- * Checks one item progression against the installed item catalog.
- * @param row Authored item replacement.
- * @return True when both indices still name their authored hashes.
- */
 [[nodiscard]] bool installed_items_match(const ItemProgression& row) noexcept {
     items::Definition source{};
     items::Definition successor{};

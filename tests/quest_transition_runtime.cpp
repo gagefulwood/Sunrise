@@ -20,6 +20,7 @@ namespace {
 namespace state = sunrise::state;
 namespace store = state::investment::store;
 namespace items = state::build_data::items;
+namespace runtime_detail = state::runtime::detail;
 
 /** Synthetic identities are not installed quest hashes or table indices. */
 constexpr std::uint64_t kAccount = 1001, kCharacter = 1002, kOtherCharacter = 1003, kSource = 1004;
@@ -407,6 +408,33 @@ void verify_runtime() {
     check(store::write_account(after), "remove source stage");
     check(!state::prepare_quest_transition(kSource, contract(), pending),
           "missing source stage accepted");
+
+    reset_fixture();
+    check(store::read_account(after), "read before equipping source");
+    auto& equippedCharacter = after.characters[0];
+    equippedCharacter.equipment.slots.front() = equippedCharacter.inventory.values[0];
+    equippedCharacter.inventory = {};
+    check(store::write_account(after), "equip source stage");
+    check(store::read_account(after), "reread equipped source");
+    runtime_detail::CharacterItemLocation sourceLocation{};
+    check(after.characters[0].inventory.count == 0
+              && runtime_detail::find_character_item_location(
+                  after.characters[0], kSource, sourceLocation)
+              && sourceLocation.equipped,
+          "equipped source fixture");
+    state::PendingQuestTransition equippedPending{};
+    check(!state::prepare_quest_transition(kSource, contract(), equippedPending)
+              && !equippedPending.prepared,
+          "equipped source accepted");
+    check(store::read_account(after), "read after equipped-source refusal");
+    const auto& equippedSource = after.characters[0].equipment.slots.front();
+    check(after.characters[0].inventory.count == 0 && equippedSource.has_value()
+              && equippedSource->instanceSoid == kSource
+              && equippedSource->definitionHash == kSourceHash,
+          "equipped source changed inventory");
+    check(store::read_unlock(store::Bank::characterObjectValues, kQuestRow, saved)
+              && saved == kCurrentValue,
+          "equipped source changed quest state");
 
     reset_fixture();
     check(store::read_account(after), "read before allocator exhaustion");

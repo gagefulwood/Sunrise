@@ -2,7 +2,7 @@ PRAGMA foreign_keys = ON;
 -- Schema version 1 stores site identity and the first two supported operation families.
 PRAGMA user_version = 1;
 
--- PE identity fields are nonzero unsigned 32-bit values.
+-- Catalog rows use nonzero unsigned 32-bit build identities.
 -- Reward Site indices exclude the unsigned 16-bit absent-reference sentinel.
 -- Provenance distinguishes recovered content from evidence-backed reconstruction.
 CREATE TABLE reward_sites (
@@ -14,7 +14,7 @@ CREATE TABLE reward_sites (
     PRIMARY KEY (image_timestamp, image_size, site_index)
 ) STRICT;
 
--- Ordinals exclude the unsigned 16-bit value that cannot fit in the operation count.
+-- Sunrise's 16-bit operation count supports zero-based ordinals 0 through 65534.
 -- Installed item indices use the nonnegative half of the signed 16-bit domain.
 -- Definition hashes are nonzero unsigned 32-bit values.
 CREATE TABLE reward_site_item_progressions (
@@ -35,8 +35,8 @@ CREATE TABLE reward_site_item_progressions (
         REFERENCES reward_sites(image_timestamp, image_size, site_index)
 ) STRICT;
 
--- kCharacterObjectValueCapacity fixes the selected-character object bank at 768 rows.
--- Ordinals exclude the unsigned 16-bit value that cannot fit in the operation count.
+-- The selected-character object bank has 768 rows.
+-- Sunrise's 16-bit operation count supports zero-based ordinals 0 through 65534.
 -- Values use the full signed 32-bit state domain.
 CREATE TABLE reward_site_character_object_transitions (
     image_timestamp INTEGER NOT NULL,

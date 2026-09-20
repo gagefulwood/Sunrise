@@ -48,13 +48,6 @@ read_completion_operations(const reward_sites::Definition& site,
     return true;
 }
 
-/**
- * Checks that resolved Reward Site operations implement the installed quest transition.
- * @param transition Installed quest metadata.
- * @param item Resolved item replacement.
- * @param characterObject Resolved character-object transition.
- * @return True when both sources describe the same completion.
- */
 [[nodiscard]] bool completion_matches_transition(
     const items::QuestTransition& transition,
     const reward_sites::ItemProgression& item,
@@ -218,25 +211,25 @@ resolve_completion(const items::QuestTransition& transition,
                                         const items::Definition& source,
                                         const items::Definition& successor,
                                         CharacterItemLocation& location) noexcept {
-    if (!unique_stage(character, source.definitionHash, successor.definitionHash)
-        || !find_character_item_location(character, sourceInstanceSoid, location)) {
+    if (!find_character_item_location(character, sourceInstanceSoid, location)) {
         return false;
     }
-    const auto& owned = character.inventory.values[location.index];
-    return !location.equipped && owned.quantity == 1
-           && (owned.flags & inventory::kLockedItemFlag) == 0
-           && owned.definitionHash == source.definitionHash
+    if (location.equipped) {
+        return false;
+    }
+    if (!unique_stage(character, source.definitionHash, successor.definitionHash)) {
+        return false;
+    }
+    const auto* owned = character_item_at(character, location);
+    return owned != nullptr && owned->quantity == 1
+           && (owned->flags & inventory::kLockedItemFlag) == 0
+           && owned->definitionHash == source.definitionHash
            && character.nextInventorySerial
                   < static_cast<std::uint32_t>((std::numeric_limits<std::int32_t>::max)());
 }
 
-/**
- * Checks the compare value required by one character-object transition.
- * @param transition Authored state transition.
- * @return True when the current selected-character value matches the expected value.
- */
 [[nodiscard]] bool
-expected_character_value(const reward_sites::CharacterObjectTransition& transition) noexcept {
+character_value_matches(const reward_sites::CharacterObjectTransition& transition) noexcept {
     std::int32_t currentValue = 0;
     return investment::store::read_unlock(
                investment::store::Bank::characterObjectValues, transition.rowIndex, currentValue)
@@ -325,7 +318,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     }
     items::Definition source{}, successor{};
     CharacterItemLocation location{};
-    if (!expected_character_value(characterObjectTransition)
+    if (!character_value_matches(characterObjectTransition)
         || !resolve_progression_items(itemProgression, source, successor)
         || !resolve_owned_source(character, sourceInstanceSoid, source, successor, location)) {
         return false;
