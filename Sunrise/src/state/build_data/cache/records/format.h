@@ -595,12 +595,15 @@ struct RosterGroupRecord {
 
 #pragma pack(pop)
 
+/** Header version/build identity and every section count occupy forty 32-bit fields. */
+inline constexpr std::size_t kHeaderUint32FieldCount = 40;
+
 static_assert(sizeof(Prefix) == kCacheMagic.size() + sizeof(std::uint32_t));
 static_assert(sizeof(InvestmentConstants)
               == constants::kCharacterStatRowCount + 3 * sizeof(std::uint8_t));
 static_assert(sizeof(Header)
-              == kCacheMagic.size() + 39 * sizeof(std::uint32_t) + 2 * sizeof(std::uint64_t)
-                     + sizeof(InvestmentConstants)
+              == kCacheMagic.size() + kHeaderUint32FieldCount * sizeof(std::uint32_t)
+                     + 2 * sizeof(std::uint64_t) + sizeof(InvestmentConstants)
                      + sizeof(gameplay::entity_position_profiles::Fingerprint));
 static_assert(sizeof(SpawnPointRecord)
               == spawn_sets::kPositionComponents * sizeof(float) + sizeof(std::uint32_t)
