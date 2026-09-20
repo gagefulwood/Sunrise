@@ -10,12 +10,52 @@ namespace sunrise::state {
 namespace {
 
 namespace items = build_data::items;
+namespace reward_sites = build_data::reward_sites;
 namespace inventory = account::inventory;
 namespace loadout = middleware::datagen::family4::loadout;
 using namespace runtime::detail;
 
 /** Pursuits have no equipment slot; the loadout resolver publishes them at slot zero. */
 constexpr std::uint8_t kPursuitEquipmentSlot = 0;
+
+/**
+ * Resolves the currently supported one-for-one quest completion shape.
+ * @param transition Installed quest metadata naming the Reward Site.
+ * @param item Receives the site's item replacement.
+ * @param characterObject Receives the site's selected-character compare-and-set.
+ * @return False when the site is absent, has another shape, or disagrees with quest metadata.
+ */
+[[nodiscard]] bool
+resolve_completion(const items::QuestTransition& transition,
+                   reward_sites::ItemProgression& item,
+                   reward_sites::CharacterObjectTransition& characterObject) noexcept {
+    reward_sites::Definition site{};
+    std::array<reward_sites::ItemProgression, 1> itemRows{};
+    std::array<reward_sites::CharacterObjectTransition, 1> characterRows{};
+    std::size_t itemCount = 0;
+    std::size_t characterCount = 0;
+    if (transition.completionEffect == items::kUnavailableQuestCompletionEffect
+        || !reward_sites::find(transition.completionEffect, site)
+        || site.itemProgressionCount != itemRows.size()
+        || site.characterObjectTransitionCount != characterRows.size()
+        || !reward_sites::item_progressions(site, itemRows, itemCount)
+        || !reward_sites::character_object_transitions(site, characterRows, characterCount)
+        || itemCount != itemRows.size() || characterCount != characterRows.size()) {
+        return false;
+    }
+    const auto& resolvedItem = itemRows.front();
+    const auto& resolvedCharacter = characterRows.front();
+    if (resolvedItem.sourceItemIndex != transition.sourceItemIndex
+        || resolvedItem.successorItemIndex != transition.successorItemIndex
+        || resolvedCharacter.rowIndex != transition.valueRow
+        || resolvedCharacter.expectedValue != transition.currentValue
+        || resolvedCharacter.nextValue != transition.nextValue) {
+        return false;
+    }
+    item = resolvedItem;
+    characterObject = resolvedCharacter;
+    return true;
+}
 
 /**
  * Resolves each native predicate from its authoritative server state.
@@ -131,8 +171,10 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
                               PendingQuestTransition& mutation) noexcept {
     const std::lock_guard lock(investment::store::g_mutex);
     mutation = {};
+    reward_sites::ItemProgression itemProgression{};
+    reward_sites::CharacterObjectTransition characterObjectTransition{};
     if (!items::valid(transition) || sourceInstanceSoid == 0
-        || transition.completionEffect != items::kUnavailableQuestCompletionEffect) {
+        || !resolve_completion(transition, itemProgression, characterObjectTransition)) {
         return false;
     }
 
@@ -153,11 +195,14 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     std::int32_t currentValue = 0;
     items::Definition source{}, successor{};
     CharacterItemLocation location{};
-    if (!investment::store::read_unlock(
-            investment::store::Bank::characterObjectValues, transition.valueRow, currentValue)
-        || currentValue != transition.currentValue
-        || !build_data::find_item_definition_index(transition.sourceItemIndex, source)
-        || !build_data::find_item_definition_index(transition.successorItemIndex, successor)
+    if (!investment::store::read_unlock(investment::store::Bank::characterObjectValues,
+                                        characterObjectTransition.rowIndex,
+                                        currentValue)
+        || currentValue != characterObjectTransition.expectedValue
+        || !build_data::find_item_definition_index(itemProgression.sourceItemIndex, source)
+        || !build_data::find_item_definition_index(itemProgression.successorItemIndex, successor)
+        || source.definitionHash != itemProgression.sourceItemHash
+        || successor.definitionHash != itemProgression.successorItemHash
         || source.bucketId != items::kPursuitBucketId
         || successor.bucketId != items::kPursuitBucketId
         || !unique_stage(character, source.definitionHash, successor.definitionHash)
@@ -206,6 +251,8 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     mutation.beforeCharacter = character;
     mutation.afterCharacter = changed;
     mutation.transition = transition;
+    mutation.itemProgression = itemProgression;
+    mutation.characterObjectTransition = characterObjectTransition;
     // complete() proves that each requested slot is present exactly once.
     for (std::size_t index = 0; index < transition.objectiveCount; ++index) {
         for (std::size_t row = 0; row < family.valueCount; ++row) {
@@ -223,6 +270,34 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     mutation.successorRow = successorRow;
     mutation.prepared = true;
     return true;
+}
+
+/** Prepares one event-driven owned-stage completion without polling at login. */
+bool prepare_completed_quest_transition(PendingQuestTransition& mutation) noexcept {
+    mutation = {};
+    AccountState account{};
+    {
+        const std::lock_guard lock(investment::store::g_mutex);
+        if (!investment::store::read_account(account) || !account::valid(account)) {
+            return false;
+        }
+    }
+    const std::size_t characterIndex = selected_character_index(account);
+    if (characterIndex >= account.characterCount) {
+        return false;
+    }
+    const auto& character = account.characters[characterIndex];
+    for (std::size_t index = 0; index < character.inventory.count; ++index) {
+        const auto& owned = character.inventory.values[index];
+        items::Definition definition{};
+        items::QuestTransition transition{};
+        if (build_data::find_item_definition_hash(owned.definitionHash, definition)
+            && build_data::find_quest_transition(definition.definitionIndex, transition)
+            && prepare_quest_transition(owned.instanceSoid, transition, mutation)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -245,6 +320,8 @@ bool preview_quest_transition(const items::QuestTransition& transition,
         || mutation.characterIndex != rebuilt.characterIndex
         || mutation.successorInstanceSoid != rebuilt.successorInstanceSoid
         || mutation.sourceRow != rebuilt.sourceRow || mutation.successorRow != rebuilt.successorRow
+        || mutation.itemProgression != rebuilt.itemProgression
+        || mutation.characterObjectTransition != rebuilt.characterObjectTransition
         || mutation.inputs != rebuilt.inputs
         || !same_character(mutation.beforeCharacter, rebuilt.beforeCharacter)
         || !same_character(mutation.afterCharacter, rebuilt.afterCharacter)
@@ -254,7 +331,8 @@ bool preview_quest_transition(const items::QuestTransition& transition,
         return false;
     }
     after.characters[mutation.characterIndex] = rebuilt.afterCharacter;
-    afterUnlocks.characterObjectValues[transition.valueRow] = transition.nextValue;
+    afterUnlocks.characterObjectValues[rebuilt.characterObjectTransition.rowIndex] =
+        rebuilt.characterObjectTransition.nextValue;
     return true;
 }
 
@@ -274,8 +352,8 @@ bool commit_quest_transition(const items::QuestTransition& transition,
            && preview_quest_transition(transition, mutation, after, afterUnlocks)
            && investment::store::write_account(after)
            && investment::store::write_unlock(investment::store::Bank::characterObjectValues,
-                                              transition.valueRow,
-                                              transition.nextValue)
+                                              mutation.characterObjectTransition.rowIndex,
+                                              mutation.characterObjectTransition.nextValue)
            && transaction.commit();
 }
 

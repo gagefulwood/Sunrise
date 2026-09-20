@@ -31,6 +31,8 @@ constexpr std::int32_t kCurrentValue = 300, kNextValue = 100;
 constexpr std::uint16_t kQuestRow = 12, kValueSlot = 17;
 /** Synthetic completion row proves unresolved effects are refused. */
 constexpr std::uint16_t kUnresolvedCompletionEffect = 7;
+/** The fixture Reward Site owns the supported item and character-object operations. */
+constexpr std::uint16_t kRewardSiteIndex = 11481;
 /** Test threshold crosses the 16-bit boundary to detect narrowed constants. */
 constexpr std::int32_t kMinimumValue = 70000;
 /** Unlimited Power's first retained predicate completes at equipment Power 899. */
@@ -41,6 +43,10 @@ std::size_t g_bucketCapacity = state::account::inventory::kCharacterItemCapacity
 std::int32_t g_equipmentPower = kEquipmentPowerThreshold;
 /** Tests can refuse equipment resolution without malformed account state. */
 bool g_equipmentPowerAvailable = true;
+/** Tests can withdraw the build-bound Reward Site without changing quest metadata. */
+bool g_rewardSiteAvailable = true;
+/** Tests can reject an installed-item identity mismatch at Reward Site resolution. */
+bool g_rewardItemIdentitiesValid = true;
 
 /** @param passed Condition to enforce. @param label Identifies the failed check. */
 void check(bool passed, const char* label) {
@@ -68,7 +74,7 @@ std::string read_text(const std::string& path) {
     return result;
 }
 
-/** @return A synthetic decoded contract with no completion effect. */
+/** @return A synthetic decoded contract backed by the fixture Reward Site. */
 items::QuestTransition contract() {
     items::QuestTransition result{};
     result.sourceItemIndex = 0;
@@ -78,6 +84,7 @@ items::QuestTransition contract() {
     result.valueRow = kQuestRow;
     result.objectiveCount = 1;
     result.objectives[0] = {kValueSlot, kMinimumValue};
+    result.completionEffect = kRewardSiteIndex;
     return result;
 }
 
@@ -125,6 +132,8 @@ void reset_fixture() {
     g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
     g_equipmentPower = kEquipmentPowerThreshold;
     g_equipmentPowerAvailable = true;
+    g_rewardSiteAvailable = true;
+    g_rewardItemIdentitiesValid = true;
 }
 
 /**
@@ -297,7 +306,20 @@ void verify_runtime() {
           "unresolved effects rejected by default");
     check_unchanged();
 
+    reset_fixture();
+    g_rewardSiteAvailable = false;
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
+          "unavailable build-bound Reward Site accepted");
+    check_unchanged();
+
+    reset_fixture();
+    g_rewardItemIdentitiesValid = false;
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
+          "Reward Site item identity mismatch accepted");
+    check_unchanged();
+
     // A replacement may use the row its source occupied in a full bucket.
+    reset_fixture();
     g_bucketCapacity = 1;
     pending = prepare();
     const auto replay = pending;
@@ -400,6 +422,22 @@ void verify_runtime() {
     check(!state::commit_quest_transition(contract(), pending), "stale inventory rejected");
     check_unchanged();
     std::puts("PASS: State transition, stale guards, replay and SQLite rollback");
+}
+
+/** Proves one explicit progression event can discover an owned supported stage. */
+void verify_event_preparation() {
+    reset_fixture();
+    state::PendingQuestTransition pending{};
+    check(state::prepare_completed_quest_transition(pending) && pending.prepared
+              && pending.sourceInstanceSoid == kSource
+              && pending.transition.completionEffect == kRewardSiteIndex,
+          "owned completed stage was not prepared from the event adapter");
+
+    state::Family5State family{};
+    check(store::write_family5(family), "clear event predicate");
+    check(!state::prepare_completed_quest_transition(pending) && !pending.prepared,
+          "incomplete stage was prepared by the event adapter");
+    std::puts("PASS: event-driven owned-stage discovery without login polling");
 }
 
 /** Proves equipment Power, not a same-slot Family-5 override, controls the predicate. */
@@ -617,12 +655,67 @@ bool find_item_definition_hash(std::uint32_t hash, items::Definition& definition
     return find_item_definition_index(hash == kSourceHash ? 0 : 1, definition);
 }
 
+/** Test transition lookup mirrors the one retained source row. */
+bool find_quest_transition(std::uint16_t sourceItemIndex,
+                           items::QuestTransition& transition) noexcept {
+    transition = {};
+    if (sourceItemIndex != 0) {
+        return false;
+    }
+    transition = contract();
+    return true;
+}
+
 /** Native detail resolution is deliberately outside this State-only executable. */
 bool find_configured_item_detail(std::uint16_t, items::details::Definition&) noexcept {
     return false;
 }
 
 } // namespace sunrise::state::build_data
+
+namespace sunrise::state::build_data::reward_sites {
+
+/** Test catalog contains one build-bound Reward Site while the availability gate is set. */
+bool find(std::uint16_t siteIndex, Definition& definition) noexcept {
+    definition = {};
+    if (!g_rewardSiteAvailable || siteIndex != kRewardSiteIndex) {
+        return false;
+    }
+    definition.siteIndex = siteIndex;
+    definition.itemProgressionCount = 1;
+    definition.characterObjectTransitionCount = 1;
+    definition.provenance = Provenance::reconstructed;
+    return true;
+}
+
+/** Supplies the site's one checked item replacement. */
+bool item_progressions(const Definition& definition,
+                       std::span<ItemProgression> output,
+                       std::size_t& count) noexcept {
+    count = 0;
+    if (!g_rewardItemIdentitiesValid || definition.siteIndex != kRewardSiteIndex
+        || output.empty()) {
+        return false;
+    }
+    output.front() = {kSourceHash, kSuccessorHash, 0, 1};
+    count = 1;
+    return true;
+}
+
+/** Supplies the site's one selected-character compare-and-set. */
+bool character_object_transitions(const Definition& definition,
+                                  std::span<CharacterObjectTransition> output,
+                                  std::size_t& count) noexcept {
+    count = 0;
+    if (definition.siteIndex != kRewardSiteIndex || output.empty()) {
+        return false;
+    }
+    output.front() = {kCurrentValue, kNextValue, kQuestRow};
+    count = 1;
+    return true;
+}
+
+} // namespace sunrise::state::build_data::reward_sites
 
 namespace sunrise::core::log {
 
@@ -698,6 +791,7 @@ int main(int argc, char** argv) {
                       settingsDefaults),
           "new in-memory store");
     verify_runtime();
+    verify_event_preparation();
     verify_equipment_power_input();
     verify_character_objectives();
     verify_objective_publication();

@@ -24,6 +24,8 @@ struct ItemProgression {
     std::uint32_t successorItemHash{};
     std::uint16_t sourceItemIndex{kUnavailableItemIndex};
     std::uint16_t successorItemIndex{kUnavailableItemIndex};
+
+    bool operator==(const ItemProgression&) const = default;
 };
 
 /** One selected-character object value compare-and-set operation. */
@@ -31,6 +33,8 @@ struct CharacterObjectTransition {
     std::int32_t expectedValue{};
     std::int32_t nextValue{};
     std::uint16_t rowIndex{};
+
+    bool operator==(const CharacterObjectTransition&) const = default;
 };
 
 /** One build-bound site and its contiguous typed operation ranges. */

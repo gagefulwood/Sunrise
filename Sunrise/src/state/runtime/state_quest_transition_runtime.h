@@ -6,6 +6,7 @@
 
 #include "../account/account_state.h"
 #include "../build_data/items/quest_transition.h"
+#include "../build_data/reward_sites/definition.h"
 #include "../unlocks/definition.h"
 
 namespace sunrise::state {
@@ -15,6 +16,8 @@ struct PendingQuestTransition {
     CharacterState beforeCharacter{};
     CharacterState afterCharacter{};
     build_data::items::QuestTransition transition{};
+    build_data::reward_sites::ItemProgression itemProgression{};
+    build_data::reward_sites::CharacterObjectTransition characterObjectTransition{};
     std::array<std::int32_t, build_data::items::kQuestObjectiveCapacity> inputs{};
     std::uint64_t accountSoid{};
     std::uint64_t sourceInstanceSoid{};
@@ -24,6 +27,15 @@ struct PendingQuestTransition {
     std::uint16_t successorRow{};
     bool prepared{};
 };
+
+/**
+ * Finds the first owned supported stage completed by the current character state.
+ * Call only from a concrete progression event; this function does not schedule or poll itself.
+ * @param mutation Receives one complete Reward Site-backed replacement; cleared when none
+ * qualifies.
+ * @return True when one owned stage is complete and every typed operation can be prepared.
+ */
+[[nodiscard]] bool prepare_completed_quest_transition(PendingQuestTransition& mutation) noexcept;
 
 /**
  * The caller supplies a decoded installed-content contract, never a client-authored plan.
