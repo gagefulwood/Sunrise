@@ -70,6 +70,9 @@ void clear(records::MutableDomains output) noexcept {
     }
     std::fill(output.named.begin(), output.named.end(), content::Definition{});
     std::fill(output.items.begin(), output.items.end(), items::Definition{});
+    std::fill(output.questTransitions.begin(),
+              output.questTransitions.end(),
+              items::QuestTransition{});
     std::fill(output.collectibles.begin(), output.collectibles.end(), collectibles::Definition{});
     std::fill(output.materialRequirementSets.begin(),
               output.materialRequirementSets.end(),
@@ -133,6 +136,8 @@ bool expected_size(const records::DomainCounts& counts, std::uint64_t& size) noe
     size = sizeof(records::Header);
     return add_records(counts.named, sizeof(records::NamedRecord), size)
            && add_records(counts.items, sizeof(records::ItemRecord), size)
+           && add_records(
+               counts.questTransitions, sizeof(records::QuestTransitionRecord), size)
            && add_records(counts.collectibles, sizeof(records::CollectibleRecord), size)
            && add_records(
                counts.materialRequirementSets, sizeof(records::MaterialRequirementSetRecord), size)
@@ -185,6 +190,9 @@ bool read_payload(HANDLE file,
         read_domain<records::NamedRecord>(file, output.named.first(counts.named), checksum);
     valid =
         valid && read_domain<records::ItemRecord>(file, output.items.first(counts.items), checksum);
+    valid = valid
+            && read_domain<records::QuestTransitionRecord>(
+                file, output.questTransitions.first(counts.questTransitions), checksum);
     valid = valid
             && read_domain<records::CollectibleRecord>(
                 file, output.collectibles.first(counts.collectibles), checksum);
@@ -297,6 +305,7 @@ bool read_payload(HANDLE file,
             constants,
             output.named.first(counts.named),
             output.items.first(counts.items),
+            output.questTransitions.first(counts.questTransitions),
             output.collectibles.first(counts.collectibles),
             output.materialRequirementSets.first(counts.materialRequirementSets),
             output.itemDetails.first(counts.itemDetails),

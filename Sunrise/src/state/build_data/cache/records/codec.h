@@ -18,6 +18,11 @@ namespace sunrise::state::build_data::cache::records {
 [[nodiscard]] bool encode(const items::Definition& value, ItemRecord& record) noexcept;
 [[nodiscard]] bool decode(const ItemRecord& record, items::Definition& value) noexcept;
 
+[[nodiscard]] bool encode(const items::QuestTransition& value,
+                          QuestTransitionRecord& record) noexcept;
+[[nodiscard]] bool decode(const QuestTransitionRecord& record,
+                          items::QuestTransition& value) noexcept;
+
 [[nodiscard]] bool encode(const collectibles::Definition& value,
                           CollectibleRecord& record) noexcept;
 [[nodiscard]] bool decode(const CollectibleRecord& record,

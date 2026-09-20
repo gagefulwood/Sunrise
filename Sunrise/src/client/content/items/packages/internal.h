@@ -176,6 +176,8 @@ struct Storage {
         materialRequirementRows{};
     std::array<state::build_data::items::Definition, state::build_data::items::kDefinitionCapacity>
         rows{};
+    /** Supported non-final quest transitions retained in source-item order. */
+    std::vector<state::build_data::items::QuestTransition> questTransitions{};
     /** Incident-target rows held until the sobject table is published. */
     std::array<state::build_data::sobjects::Definition,
                state::build_data::sobjects::kDefinitionCapacity>

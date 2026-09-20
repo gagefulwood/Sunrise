@@ -94,6 +94,62 @@ bool decode(const ItemRecord& record, items::Definition& value) noexcept {
     return items::valid(value.questInitialization);
 }
 
+/**
+ * Packs one validated sparse quest transition.
+ * @param value Runtime transition.
+ * @param record Receives the canonical disk form.
+ * @return True when the transition and objective count are supported.
+ */
+bool encode(const items::QuestTransition& value, QuestTransitionRecord& record) noexcept {
+    if (!items::valid(value) || value.objectiveCount > (std::numeric_limits<std::uint8_t>::max)()) {
+        return false;
+    }
+    record = {};
+    record.currentValue = value.currentValue;
+    record.nextValue = value.nextValue;
+    record.sourceItemIndex = value.sourceItemIndex;
+    record.successorItemIndex = value.successorItemIndex;
+    record.valueRow = value.valueRow;
+    record.completionEffect = value.completionEffect;
+    record.objectiveCount = static_cast<std::uint8_t>(value.objectiveCount);
+    for (std::size_t index = 0; index < value.objectiveCount; ++index) {
+        record.objectives[index] = {value.objectives[index].minimumValue,
+                                    value.objectives[index].valueSlot,
+                                    static_cast<std::uint8_t>(value.objectives[index].input)};
+    }
+    return true;
+}
+
+/**
+ * Unpacks one sparse quest transition and rejects unknown predicate inputs.
+ * @param record Canonical disk form.
+ * @param value Receives the validated runtime transition.
+ * @return True when every field and predicate input is supported.
+ */
+bool decode(const QuestTransitionRecord& record, items::QuestTransition& value) noexcept {
+    value = {};
+    if (record.objectiveCount > value.objectives.size()) {
+        return false;
+    }
+    value.currentValue = record.currentValue;
+    value.nextValue = record.nextValue;
+    value.sourceItemIndex = record.sourceItemIndex;
+    value.successorItemIndex = record.successorItemIndex;
+    value.valueRow = record.valueRow;
+    value.completionEffect = record.completionEffect;
+    value.objectiveCount = record.objectiveCount;
+    for (std::size_t index = 0; index < value.objectiveCount; ++index) {
+        const auto input = static_cast<items::QuestPredicate::Input>(record.objectives[index].input);
+        if (input != items::QuestPredicate::Input::family5
+            && input != items::QuestPredicate::Input::characterCounter) {
+            return false;
+        }
+        value.objectives[index] = {
+            record.objectives[index].valueSlot, record.objectives[index].minimumValue, input};
+    }
+    return items::valid(value);
+}
+
 /** Encodes one collectible ordinal and its optional item link. */
 bool encode(const collectibles::Definition& value, CollectibleRecord& record) noexcept {
     if (value.materialRequirementCount > value.materialRequirements.size()) {

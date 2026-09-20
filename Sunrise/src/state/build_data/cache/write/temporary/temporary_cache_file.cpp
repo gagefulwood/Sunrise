@@ -108,6 +108,7 @@ enum class WriteStatus {
         build.configuredEquipmentHash,
         static_cast<std::uint32_t>(domains.named.size()),
         static_cast<std::uint32_t>(domains.items.size()),
+        static_cast<std::uint32_t>(domains.questTransitions.size()),
         static_cast<std::uint32_t>(domains.collectibles.size()),
         static_cast<std::uint32_t>(domains.materialRequirementSets.size()),
         static_cast<std::uint32_t>(domains.itemDetails.size()),

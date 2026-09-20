@@ -5,11 +5,14 @@
 #include <span>
 
 #include "quest_initialization.h"
+#include "quest_transition.h"
 
 namespace sunrise::state::build_data::items {
 
 /** Signed native definition indices give 32,768 item rows. */
 inline constexpr std::size_t kDefinitionCapacity = 32768;
+/** Each installed item can own at most one non-final quest transition. */
+inline constexpr std::size_t kQuestTransitionCapacity = kDefinitionCapacity;
 /** All bucket bits set mark a valid item row whose inventory bucket was not found. */
 inline constexpr std::uint8_t kUnresolvedBucketId = 0xFF;
 /** A plug with no authored insertion/enabled price carries all set-index bits. */
@@ -70,11 +73,29 @@ void clear() noexcept;
 [[nodiscard]] bool valid(std::span<const Definition> definitions) noexcept;
 
 /**
+ * Checks a complete item table and its sparse non-final quest transitions.
+ * @param definitions Candidate installed-build mappings.
+ * @param transitions Candidate transitions sorted by source item index.
+ * @return True when every transition names matching pursuit rows exactly once.
+ */
+[[nodiscard]] bool valid(std::span<const Definition> definitions,
+                         std::span<const QuestTransition> transitions) noexcept;
+
+/**
  * Replaces the generated item definition table in one step.
  * @param definitions Complete dense installed-build mappings.
  * @return True when all rows pass the checks and fit fixed State storage.
  */
 [[nodiscard]] bool replace(std::span<const Definition> definitions) noexcept;
+
+/**
+ * Replaces the item table and sparse quest-transition catalog in one step.
+ * @param definitions Complete dense installed-build mappings.
+ * @param transitions Supported transitions sorted by source item index.
+ * @return True when both domains validate and publish under one lock.
+ */
+[[nodiscard]] bool replace(std::span<const Definition> definitions,
+                           std::span<const QuestTransition> transitions) noexcept;
 
 /**
  * Finds one authored hash with its expected inventory bucket.
@@ -110,7 +131,28 @@ find(std::uint32_t definitionHash, std::uint8_t bucketId, Definition& definition
  */
 [[nodiscard]] bool snapshot(std::span<Definition> output, std::size_t& count) noexcept;
 
+/**
+ * Copies every retained transition in source-item order.
+ * @param output Caller-owned transition storage.
+ * @param count Receives the copied row count.
+ * @return False only when the storage cannot hold the catalog.
+ */
+[[nodiscard]] bool snapshot_transitions(std::span<QuestTransition> output,
+                                        std::size_t& count) noexcept;
+
+/**
+ * Finds one retained non-final transition by its owned source stage.
+ * @param sourceItemIndex Native source item index.
+ * @param transition Receives the matching transition; cleared when absent.
+ * @return True when the catalog contains the source stage.
+ */
+[[nodiscard]] bool find_transition(std::uint16_t sourceItemIndex,
+                                   QuestTransition& transition) noexcept;
+
 /** @return Number of installed-build item mappings. */
 [[nodiscard]] std::size_t count() noexcept;
+
+/** @return Number of retained non-final quest transitions. */
+[[nodiscard]] std::size_t transition_count() noexcept;
 
 } // namespace sunrise::state::build_data::items

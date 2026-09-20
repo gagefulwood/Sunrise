@@ -10,8 +10,15 @@ bool item_definitions_ready() noexcept {
 
 /** Publishes one dense item table and saves every ready build-data domain. */
 bool publish_item_definitions(std::span<const items::Definition> definitions) noexcept {
+    return publish_item_definitions(definitions, {});
+}
+
+/** Publishes dense items and sparse transitions through one persistence transaction. */
+bool publish_item_definitions(std::span<const items::Definition> definitions,
+                              std::span<const items::QuestTransition> transitions) noexcept {
     runtime::persistence::Transaction transaction;
-    return transaction.active() && transaction.finish(items::replace(definitions), items::clear);
+    return transaction.active()
+           && transaction.finish(items::replace(definitions, transitions), items::clear);
 }
 
 /** Finds one authored item hash, only after a complete item table is published. */
@@ -35,6 +42,13 @@ bool find_item_definition_index(std::uint16_t definitionIndex,
     definition = {};
     return item_definitions_ready() && items::find_index(definitionIndex, definition)
            && definition.definitionIndex == definitionIndex;
+}
+
+/** Finds one retained quest transition only after the complete item table is published. */
+bool find_quest_transition(std::uint16_t sourceItemIndex,
+                           items::QuestTransition& transition) noexcept {
+    transition = {};
+    return item_definitions_ready() && items::find_transition(sourceItemIndex, transition);
 }
 
 } // namespace sunrise::state::build_data

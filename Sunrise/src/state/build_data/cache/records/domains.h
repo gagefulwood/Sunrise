@@ -33,6 +33,7 @@ namespace sunrise::state::build_data::cache::records {
 struct DomainCounts {
     std::size_t named{};
     std::size_t items{};
+    std::size_t questTransitions{};
     std::size_t collectibles{};
     std::size_t materialRequirementSets{};
     std::size_t itemDetails{};
@@ -75,6 +76,7 @@ struct MutableDomains {
     InvestmentConstants* constants{};
     std::span<content::Definition> named;
     std::span<items::Definition> items;
+    std::span<items::QuestTransition> questTransitions;
     std::span<collectibles::Definition> collectibles;
     std::span<material_requirements::Definition> materialRequirementSets;
     std::span<items::details::Definition> itemDetails;
@@ -117,6 +119,7 @@ struct Domains {
     InvestmentConstants constants{};
     std::span<const content::Definition> named;
     std::span<const items::Definition> items;
+    std::span<const items::QuestTransition> questTransitions;
     std::span<const collectibles::Definition> collectibles;
     std::span<const material_requirements::Definition> materialRequirementSets;
     std::span<const items::details::Definition> itemDetails;

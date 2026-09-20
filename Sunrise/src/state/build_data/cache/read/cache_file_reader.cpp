@@ -11,7 +11,8 @@ namespace {
 
 /** @return True when every required domain is nonempty. */
 [[nodiscard]] bool required_domains_present(const records::DomainCounts& counts) noexcept {
-    return counts.named != 0 && counts.items != 0 && counts.collectibles != 0
+    return counts.named != 0 && counts.items != 0 && counts.questTransitions != 0
+           && counts.collectibles != 0
            && counts.materialRequirementSets != 0 && counts.socketPlugRules != 0
            && counts.socketPlugPools != 0 && counts.inventoryBuckets != 0
            && counts.socketEntryLists != 0 && counts.progressions != 0 && counts.scenarios != 0
@@ -22,6 +23,7 @@ namespace {
 [[nodiscard]] bool counts_fit(const records::DomainCounts& counts,
                               records::MutableDomains output) noexcept {
     return counts.named <= output.named.size() && counts.items <= output.items.size()
+           && counts.questTransitions <= output.questTransitions.size()
            && counts.collectibles <= output.collectibles.size()
            && counts.materialRequirementSets <= output.materialRequirementSets.size()
            && counts.itemDetails <= output.itemDetails.size()
@@ -62,6 +64,7 @@ namespace {
     return {
         header.namedCount,
         header.itemCount,
+        header.questTransitionCount,
         header.collectibleCount,
         header.materialRequirementSetCount,
         header.itemDetailCount,

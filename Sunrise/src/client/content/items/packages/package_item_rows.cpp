@@ -2,6 +2,7 @@
 #include <span>
 
 #include "../../../../middleware/content/packages/tables/quest_initialization_reader.h"
+#include "../../../../middleware/content/packages/tables/quest_transition_reader.h"
 #include "../../../../state/build_data/items/catalysts/exotic_catalyst_builder.h"
 #include "../../../../state/build_data/items/details/item_detail_catalog.h"
 #include "../../../../state/build_data/runtime.h"
@@ -87,6 +88,9 @@ bool build_item_rows(const reader::Source& source,
     }
     const bool detailStorageReady = !retainDetails || storage.details.size() == kDetailCapacity;
     const std::span<const std::byte> container{storage.child};
+    if (needDefinitions) {
+        storage.questTransitions.clear();
+    }
     reason = "rows";
     // The detail closure is gathered during this one walk. Collections can name any installed
     // item row, including profile-owned shaders and modifications, so retain every readable row.
@@ -138,6 +142,16 @@ bool build_item_rows(const reader::Source& source,
                                                              parent,
                                                              static_cast<std::size_t>(table.count),
                                                              storage.questValueMap);
+                build_items::QuestTransition transition{};
+                if (tables::items::read_quest_transition(storage.definition,
+                                                         item.definitionIndex,
+                                                         parent,
+                                                         static_cast<std::size_t>(table.count),
+                                                         storage.questValueMap,
+                                                         storage.objectiveTable,
+                                                         transition)) {
+                    storage.questTransitions.push_back(transition);
+                }
             }
         }
         storage.rows[rowCount++] =
@@ -172,8 +186,8 @@ bool build_item_rows(const reader::Source& source,
         published = rowCount != 0 && requestsFit && detailStorageReady;
     }
     if (published && needDefinitions) {
-        published =
-            state::build_data::publish_item_definitions(std::span(storage.rows).first(rowCount));
+        published = state::build_data::publish_item_definitions(
+            std::span(storage.rows).first(rowCount), storage.questTransitions);
     }
     if (!published) {
         reason = !detailStorageReady ? "detail_storage"

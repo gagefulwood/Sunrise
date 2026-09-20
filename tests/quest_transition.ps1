@@ -14,6 +14,7 @@ $questSqlite = Join-Path $questRoot 'Sunrise/vendor/sqlite'
 $questSources = @(
     'tests/quest_transition_runtime.cpp',
     'tests/quest_transition_reader_tests.cpp',
+    'tests/quest_transition_catalog_tests.cpp',
     'Sunrise/src/middleware/web_service/messages/family5_codec.cpp',
     'Sunrise/src/middleware/encoding/bit_reader.cpp',
     'Sunrise/src/middleware/encoding/bit_writer.cpp',
@@ -23,6 +24,7 @@ $questSources = @(
     'Sunrise/src/state/runtime/state_quest_transition_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_identity_runtime.cpp',
     'Sunrise/src/state/runtime/state_account_equipment_runtime.cpp',
+    'Sunrise/src/state/build_data/items/item_catalog.cpp',
     'Sunrise/src/state/account/account_state.cpp',
     'Sunrise/src/state/account/inventory/inventory_state.cpp',
     'Sunrise/src/state/account/settings/settings_state.cpp',

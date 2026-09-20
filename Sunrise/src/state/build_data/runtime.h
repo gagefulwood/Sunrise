@@ -81,6 +81,16 @@ void shutdown() noexcept;
 publish_item_definitions(std::span<const items::Definition> definitions) noexcept;
 
 /**
+ * Publishes dense items and sparse non-final quest transitions together.
+ * @param definitions Complete installed item table.
+ * @param transitions Supported transitions sorted by source item index.
+ * @return True when both domains publish and persist together.
+ */
+[[nodiscard]] bool publish_item_definitions(
+    std::span<const items::Definition> definitions,
+    std::span<const items::QuestTransition> transitions) noexcept;
+
+/**
  * Finds one authored item hash inside its expected inventory bucket.
  * @param definitionHash Authored item definition hash.
  * @param bucketId Expected inventory bucket id.
@@ -108,6 +118,15 @@ publish_item_definitions(std::span<const items::Definition> definitions) noexcep
  */
 [[nodiscard]] bool find_item_definition_index(std::uint16_t definitionIndex,
                                               items::Definition& definition) noexcept;
+
+/**
+ * Finds retained completion metadata for one owned quest stage.
+ * @param sourceItemIndex Native source-stage item index.
+ * @param transition Receives the retained transition; cleared when absent.
+ * @return True when the installed build supports this non-final stage.
+ */
+[[nodiscard]] bool find_quest_transition(std::uint16_t sourceItemIndex,
+                                         items::QuestTransition& transition) noexcept;
 
 /**
  * Reads the items one record grants when it is claimed.

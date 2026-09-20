@@ -31,7 +31,7 @@ namespace sunrise::state::build_data::cache::records {
 /** These 8 ASCII bytes mark a Sunrise build-data file. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', 'E', 'B'};
 /** Bump when stored layouts or extracted values change; other versions are rebuilt. */
-inline constexpr std::uint32_t kCacheFormatVersion = 65;
+inline constexpr std::uint32_t kCacheFormatVersion = 66;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -70,6 +70,7 @@ struct Header {
     std::uint64_t configuredEquipmentHash{};
     std::uint32_t namedCount{};
     std::uint32_t itemCount{};
+    std::uint32_t questTransitionCount{};
     std::uint32_t collectibleCount{};
     std::uint32_t materialRequirementSetCount{};
     std::uint32_t itemDetailCount{};
@@ -153,6 +154,25 @@ struct ItemRecord {
     std::int32_t questInitialValue{};
     std::uint16_t questValueRow{};
     std::uint8_t questValueScope{};
+};
+
+/** Disk form of one supported quest completion predicate. */
+struct QuestPredicateRecord {
+    std::int32_t minimumValue{};
+    std::uint16_t valueSlot{};
+    std::uint8_t input{};
+};
+
+/** Disk form of one sparse non-final quest transition. */
+struct QuestTransitionRecord {
+    std::int32_t currentValue{};
+    std::int32_t nextValue{};
+    std::uint16_t sourceItemIndex{items::kUnavailableQuestItemIndex};
+    std::uint16_t successorItemIndex{items::kUnavailableQuestItemIndex};
+    std::uint16_t valueRow{};
+    std::uint16_t completionEffect{items::kUnavailableQuestCompletionEffect};
+    std::uint8_t objectiveCount{};
+    std::array<QuestPredicateRecord, items::kQuestObjectiveCapacity> objectives{};
 };
 
 /** Disk form of one material charged by a native Collections acquisition. */
@@ -643,6 +663,11 @@ static_assert(sizeof(NamedRecord)
                      + 2 * sizeof(std::uint32_t));
 static_assert(sizeof(ItemRecord)
               == 3 * sizeof(std::uint32_t) + 6 * sizeof(std::uint16_t) + 3 * sizeof(std::uint8_t));
+static_assert(sizeof(QuestPredicateRecord)
+              == sizeof(std::int32_t) + sizeof(std::uint16_t) + sizeof(std::uint8_t));
+static_assert(sizeof(QuestTransitionRecord)
+              == 2 * sizeof(std::int32_t) + 4 * sizeof(std::uint16_t) + sizeof(std::uint8_t)
+                     + items::kQuestObjectiveCapacity * sizeof(QuestPredicateRecord));
 static_assert(sizeof(MaterialRequirementRecord)
               == sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
 static_assert(sizeof(CollectibleRecord)

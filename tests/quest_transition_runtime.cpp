@@ -12,6 +12,7 @@
 #include "state/runtime/state_quest_transition_runtime.h"
 
 void verify_quest_transition_reader(const char* retainedDirectory);
+void verify_quest_transition_catalog();
 
 namespace {
 
@@ -634,6 +635,7 @@ int main(int argc, char** argv) {
     verify_runtime();
     verify_character_objectives();
     verify_objective_publication();
+    verify_quest_transition_catalog();
     verify_quest_transition_reader(argc > 2 && std::string_view(argv[2]) != "-" ? argv[2]
                                                                                 : nullptr);
     if (argc > 3) {

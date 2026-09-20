@@ -67,6 +67,7 @@ bool payload_checksum(records::Domains domains, std::uint64_t& checksum) noexcep
         domains.positionFingerprint);
     return checksum_domain<records::NamedRecord>(domains.named, checksum)
            && checksum_domain<records::ItemRecord>(domains.items, checksum)
+           && checksum_domain<records::QuestTransitionRecord>(domains.questTransitions, checksum)
            && checksum_domain<records::CollectibleRecord>(domains.collectibles, checksum)
            && checksum_domain<records::MaterialRequirementSetRecord>(
                domains.materialRequirementSets, checksum)
@@ -110,6 +111,7 @@ bool payload_checksum(records::Domains domains, std::uint64_t& checksum) noexcep
 bool write_payload(HANDLE file, records::Domains domains) noexcept {
     return write_domain<records::NamedRecord>(file, domains.named)
            && write_domain<records::ItemRecord>(file, domains.items)
+           && write_domain<records::QuestTransitionRecord>(file, domains.questTransitions)
            && write_domain<records::CollectibleRecord>(file, domains.collectibles)
            && write_domain<records::MaterialRequirementSetRecord>(file,
                                                                   domains.materialRequirementSets)

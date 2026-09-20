@@ -65,6 +65,7 @@ struct Context {
     SRWLOCK lock{SRWLOCK_INIT};
     std::vector<content::Definition> namedScratch{};
     std::vector<items::Definition> itemScratch{};
+    std::vector<items::QuestTransition> questTransitionScratch{};
     std::vector<collectibles::Definition> collectibleScratch{};
     std::vector<material_requirements::Definition> materialRequirementSetScratch{};
     std::vector<items::details::Definition> itemDetailScratch{};

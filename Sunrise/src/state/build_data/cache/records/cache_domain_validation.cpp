@@ -80,8 +80,14 @@ namespace {
 
 /** @return Native definition-index order for item rows. */
 [[nodiscard]] bool item_less(const items::Definition& left,
-                             const items::Definition& right) noexcept {
+                              const items::Definition& right) noexcept {
     return left.definitionIndex < right.definitionIndex;
+}
+
+/** @return Source-item order for sparse quest transitions. */
+[[nodiscard]] bool quest_transition_less(const items::QuestTransition& left,
+                                         const items::QuestTransition& right) noexcept {
+    return left.sourceItemIndex < right.sourceItemIndex;
 }
 
 /** @return Native collectible-index order. */
@@ -138,6 +144,7 @@ template <typename Value, typename Less>
 /** @return True when every count fits the fixed storage. */
 [[nodiscard]] bool counts_fit(MutableDomains domains, const DomainCounts& counts) noexcept {
     return counts.named <= domains.named.size() && counts.items <= domains.items.size()
+           && counts.questTransitions <= domains.questTransitions.size()
            && counts.collectibles <= domains.collectibles.size()
            && counts.materialRequirementSets <= domains.materialRequirementSets.size()
            && counts.itemDetails <= domains.itemDetails.size()
@@ -190,6 +197,7 @@ bool canonicalize(MutableDomains domains, const DomainCounts& counts) noexcept {
     });
     const auto named = domains.named.first(counts.named);
     const auto items = domains.items.first(counts.items);
+    const auto questTransitions = domains.questTransitions.first(counts.questTransitions);
     const auto collectibles = domains.collectibles.first(counts.collectibles);
     const auto materialRequirementSets =
         domains.materialRequirementSets.first(counts.materialRequirementSets);
@@ -200,6 +208,7 @@ bool canonicalize(MutableDomains domains, const DomainCounts& counts) noexcept {
     const auto socketEntryLists = domains.socketEntryLists.first(counts.socketEntryLists);
     std::sort(named.begin(), named.end(), named_less);
     std::sort(items.begin(), items.end(), item_less);
+    std::sort(questTransitions.begin(), questTransitions.end(), quest_transition_less);
     std::sort(collectibles.begin(), collectibles.end(), collectible_less);
     std::sort(
         materialRequirementSets.begin(), materialRequirementSets.end(), material_requirement_less);
@@ -233,7 +242,8 @@ bool valid_domains(const BuildIdentity& build, Domains domains) noexcept {
         || domains.socketPlugPools.empty() || domains.inventoryBuckets.empty()
         || domains.socketEntryLists.empty()
         || !std::all_of(domains.named.begin(), domains.named.end(), valid_name)
-        || !strictly_ordered(domains.named, named_less) || !items::valid(domains.items)
+        || !strictly_ordered(domains.named, named_less)
+        || !items::valid(domains.items, domains.questTransitions)
         || !collectibles::valid(domains.collectibles)
         || !strictly_ordered(domains.collectibles, collectible_less)
         || !material_requirements::valid(domains.materialRequirementSets)

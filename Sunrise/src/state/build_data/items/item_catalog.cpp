@@ -5,6 +5,7 @@
 #include <limits>
 #include <mutex>
 #include <shared_mutex>
+#include <vector>
 
 #include "../table.h"
 #include "core/threading/srw_lock.h"
@@ -25,6 +26,7 @@ constexpr std::size_t kDefinitionHashByteCount = sizeof(std::uint32_t);
 
 core::threading::SrwLock g_lock;
 Table<Definition, kDefinitionCapacity> g_definitions;
+std::vector<QuestTransition> g_questTransitions;
 // Open-addressed probes into the dense rows, rebuilt with them under the same exclusive hold.
 std::array<std::uint16_t, kLookupCapacity> g_lookup{};
 std::array<std::uint16_t, kLookupCapacity> g_hashLookup{};
@@ -92,6 +94,7 @@ void insert_hash_lookup(const Definition& definition) noexcept {
 void clear() noexcept {
     const std::lock_guard guard(g_lock);
     g_definitions.clear();
+    std::vector<QuestTransition>{}.swap(g_questTransitions);
     std::fill(g_lookup.begin(), g_lookup.end(), kEmptyLookupRow);
     std::fill(g_hashLookup.begin(), g_hashLookup.end(), kEmptyLookupRow);
 }
@@ -114,9 +117,51 @@ bool valid(std::span<const Definition> definitions) noexcept {
     return true;
 }
 
+/**
+ * Checks sparse transitions against the complete dense item table.
+ * @param definitions Candidate installed-build mappings.
+ * @param transitions Candidate transitions sorted by source item index.
+ * @return True when every transition names matching pursuit rows exactly once.
+ */
+bool valid(std::span<const Definition> definitions,
+           std::span<const QuestTransition> transitions) noexcept {
+    if (!valid(definitions) || transitions.size() > kQuestTransitionCapacity) {
+        return false;
+    }
+    std::uint16_t previous = kUnavailableQuestItemIndex;
+    for (const QuestTransition& transition : transitions) {
+        if (!items::valid(transition)
+            || (previous != kUnavailableQuestItemIndex
+                && previous >= transition.sourceItemIndex)
+            || transition.sourceItemIndex >= definitions.size()
+            || transition.successorItemIndex >= definitions.size()
+            || definitions[transition.sourceItemIndex].definitionIndex
+                   != transition.sourceItemIndex
+            || definitions[transition.successorItemIndex].definitionIndex
+                   != transition.successorItemIndex
+            || definitions[transition.sourceItemIndex].bucketId != kPursuitBucketId
+            || definitions[transition.successorItemIndex].bucketId != kPursuitBucketId) {
+            return false;
+        }
+        previous = transition.sourceItemIndex;
+    }
+    return true;
+}
+
 /** Rebuilds the dense rows and the lookups, only after the whole input passes the checks. */
 bool replace(std::span<const Definition> definitions) noexcept {
-    if (!valid(definitions)) {
+    return replace(definitions, {});
+}
+
+/**
+ * Rebuilds dense items, sparse transitions, and lookups under one exclusive hold.
+ * @param definitions Complete dense installed-build mappings.
+ * @param transitions Supported transitions sorted by source item index.
+ * @return True when both domains validate and publish together.
+ */
+bool replace(std::span<const Definition> definitions,
+             std::span<const QuestTransition> transitions) noexcept {
+    if (!valid(definitions, transitions)) {
         return false;
     }
     const std::lock_guard guard(g_lock);
@@ -135,6 +180,7 @@ bool replace(std::span<const Definition> definitions) noexcept {
             insert_lookup(definition);
         }
     }
+    g_questTransitions.assign(transitions.begin(), transitions.end());
     return true;
 }
 
@@ -209,10 +255,56 @@ bool snapshot(std::span<Definition> output, std::size_t& count) noexcept {
     return g_definitions.snapshot(output, count);
 }
 
+/**
+ * Copies the sparse transition catalog without exposing its storage.
+ * @param output Caller-owned transition storage.
+ * @param count Receives the copied row count, or zero on failure.
+ * @return False only when the storage cannot hold the catalog.
+ */
+bool snapshot_transitions(std::span<QuestTransition> output, std::size_t& count) noexcept {
+    const std::shared_lock guard(g_lock);
+    count = 0;
+    if (output.size() < g_questTransitions.size()) {
+        return false;
+    }
+    std::copy(g_questTransitions.begin(), g_questTransitions.end(), output.begin());
+    count = g_questTransitions.size();
+    return true;
+}
+
+/**
+ * Finds one transition by its unique source item index.
+ * @param sourceItemIndex Native source item index.
+ * @param transition Receives the matching transition; cleared when absent.
+ * @return True when the catalog contains the source stage.
+ */
+bool find_transition(std::uint16_t sourceItemIndex, QuestTransition& transition) noexcept {
+    transition = {};
+    const std::shared_lock guard(g_lock);
+    const auto found = std::lower_bound(
+        g_questTransitions.begin(),
+        g_questTransitions.end(),
+        sourceItemIndex,
+        [](const QuestTransition& row, std::uint16_t index) {
+            return row.sourceItemIndex < index;
+        });
+    if (found == g_questTransitions.end() || found->sourceItemIndex != sourceItemIndex) {
+        return false;
+    }
+    transition = *found;
+    return true;
+}
+
 /** @return Number of installed-build item mappings, read under the lock. */
 std::size_t count() noexcept {
     const std::shared_lock guard(g_lock);
     return g_definitions.count();
+}
+
+/** @return Sparse transition count, read under the catalog lock. */
+std::size_t transition_count() noexcept {
+    const std::shared_lock guard(g_lock);
+    return g_questTransitions.size();
 }
 
 } // namespace sunrise::state::build_data::items

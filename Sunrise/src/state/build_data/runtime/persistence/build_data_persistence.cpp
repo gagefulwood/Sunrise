@@ -71,6 +71,7 @@ to_record(const constants::InvestmentConstants& value) noexcept {
     gameplay::entity_object_types::Fingerprint objectFingerprint{};
     return content::snapshot(scratch.named, counts.named)
            && items::snapshot(scratch.items, counts.items)
+           && items::snapshot_transitions(scratch.questTransitions, counts.questTransitions)
            && collectibles::snapshot(scratch.collectibles, counts.collectibles)
            && material_requirements::snapshot(scratch.materialRequirementSets,
                                               counts.materialRequirementSets)
@@ -145,6 +146,9 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
     const auto items =
         ensure_scratch<build_data::items::Definition, build_data::items::kDefinitionCapacity>(
             state.itemScratch);
+    const auto questTransitions =
+        ensure_scratch<build_data::items::QuestTransition,
+                       build_data::items::kQuestTransitionCapacity>(state.questTransitionScratch);
     const auto collectibles =
         ensure_scratch<build_data::collectibles::Definition,
                        build_data::collectibles::kDefinitionCapacity>(state.collectibleScratch);
@@ -234,6 +238,7 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
         &state.constantsScratch,
         named,
         items,
+        questTransitions,
         collectibles,
         materialRequirementSets,
         itemDetails,
@@ -285,6 +290,7 @@ template <typename Value> static void release_bank(std::vector<Value>& storage) 
 void release_scratch_locked(Context& state) noexcept {
     release_bank(state.namedScratch);
     release_bank(state.itemScratch);
+    release_bank(state.questTransitionScratch);
     release_bank(state.collectibleScratch);
     release_bank(state.materialRequirementSetScratch);
     release_bank(state.itemDetailScratch);
@@ -352,6 +358,8 @@ cache::records::Domains occupied_domains(Context& state,
         state.constantsScratch,
         std::span<const content::Definition>{state.namedScratch.data(), counts.named},
         std::span<const build_data::items::Definition>{state.itemScratch.data(), counts.items},
+        std::span<const build_data::items::QuestTransition>{state.questTransitionScratch.data(),
+                                                            counts.questTransitions},
         std::span<const build_data::collectibles::Definition>{state.collectibleScratch.data(),
                                                               counts.collectibles},
         std::span<const material_requirements::Definition>{

@@ -18,6 +18,7 @@ namespace {
     /** The header uses unsigned 32-bit row counts for every domain. */
     constexpr std::size_t kMaximumCount = (std::numeric_limits<std::uint32_t>::max)();
     return domains.named.size() <= kMaximumCount && domains.items.size() <= kMaximumCount
+           && domains.questTransitions.size() <= kMaximumCount
            && domains.collectibles.size() <= kMaximumCount
            && domains.materialRequirementSets.size() <= kMaximumCount
            && domains.itemDetails.size() <= kMaximumCount

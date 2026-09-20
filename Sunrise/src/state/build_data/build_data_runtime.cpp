@@ -157,7 +157,8 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         domains.constants.characterStatRows,
     };
     if (status != cache::LoadStatus::loaded || !constants::replace(cachedConstants)
-        || !content::replace(domains.named) || !content::seal() || !items::replace(domains.items)
+        || !content::replace(domains.named) || !content::seal()
+        || !items::replace(domains.items, domains.questTransitions)
         || !collectibles::replace(domains.collectibles)
         || !material_requirements::replace(domains.materialRequirementSets)
         || !inventory::buckets::replace(domains.inventoryBuckets)
