@@ -402,6 +402,24 @@ void verify_runtime() {
           "owned successor rejected");
 
     reset_fixture();
+    check(store::read_account(after), "read before missing source");
+    after.characters[0].inventory = {};
+    check(store::write_account(after), "remove source stage");
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
+          "missing source stage accepted");
+
+    reset_fixture();
+    check(store::read_account(after), "read before allocator exhaustion");
+    auto& allocatorInventory = after.characters[0].inventory;
+    allocatorInventory.values[1] = allocatorInventory.values[0];
+    allocatorInventory.values[1].instanceSoid = (std::numeric_limits<std::uint64_t>::max)();
+    allocatorInventory.values[1].definitionHash = kSuccessorHash + 1;
+    allocatorInventory.count = 2;
+    check(store::write_account(after), "exhaust item identity allocator");
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
+          "item identity allocator exhaustion accepted");
+
+    reset_fixture();
     pending = prepare();
     g_bucketCapacity = 0;
     check(!state::commit_quest_transition(contract(), pending), "resolver refusal prevents commit");
@@ -413,6 +431,15 @@ void verify_runtime() {
     check(store::write_account(after), "seed multi-unit source");
     check(!state::prepare_quest_transition(kSource, contract(), pending),
           "multi-unit source rejected");
+
+    reset_fixture();
+    pending = prepare();
+    check(store::write_unlock(store::Bank::characterObjectValues, kQuestRow, kCurrentValue + 1),
+          "change quest stage value");
+    check(!state::commit_quest_transition(contract(), pending), "stale quest state accepted");
+    check(store::read_account(after)
+              && after.characters[0].inventory.values[0].definitionHash == kSourceHash,
+          "stale quest state changed inventory");
 
     reset_fixture();
     pending = prepare();

@@ -351,8 +351,10 @@ struct Session {
     std::int32_t pendingSeasonalExperienceAmount{};
     std::uint32_t pendingSeasonalExperienceMutationSerial{};
     bool authenticated{};
-    /** Owes a Family-5 replacement after selection or artifact overrides change. */
+    /** Owes a Family-5 replacement after selection, artifact, or quest state changes. */
     bool investmentRefreshArmed{};
+    /** One committed gear change owes a bounded supported-quest completion attempt. */
+    bool questCompletionArmed{};
     bool artifactFamily4RefreshArmed{};
     std::uint64_t artifactFamily4RefreshDueTick{};
     state::ArtifactResetResult artifactResetRefresh{};
