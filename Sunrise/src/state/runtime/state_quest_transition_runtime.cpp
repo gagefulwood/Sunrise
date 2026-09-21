@@ -2,6 +2,7 @@
 
 #include <limits>
 
+#include "../../core/logging/log.h"
 #include "../equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "../investment/store_internal.h"
 #include "state_account_transaction_helpers.h"
@@ -19,6 +20,30 @@ using namespace runtime::detail;
 constexpr std::uint8_t kPursuitEquipmentSlot = 0;
 /** Supported quest completions replace one item stage and advance one character-object row. */
 constexpr std::size_t kQuestCompletionOperationCount = 1;
+
+/** Why a build-bound completion definition could not supply the supported operation pair. */
+enum class CompletionResolution : std::uint8_t {
+    ready,
+    missingCoverage,
+    unsupportedShape,
+    unresolvedOperations,
+    transitionMismatch,
+};
+
+/**
+ * Emits one debug refusal without logging an ordinarily unmet quest predicate.
+ * @param transition Installed transition naming the site and source item.
+ * @param reason Static reason token for the failed contract.
+ */
+void log_refusal(const items::QuestTransition& transition, const char* reason) noexcept {
+    core::log::writef(core::log::Channel::state,
+                      core::log::Level::debug,
+                      "ev=quest_completion stage=prepare result=refused reason=%s site=%u "
+                      "source_item=%u",
+                      reason,
+                      transition.completionEffect,
+                      transition.sourceItemIndex);
+}
 
 /**
  * Reads the one-for-one operation shape supported by quest completion.
@@ -64,23 +89,32 @@ read_completion_operations(const reward_sites::Definition& site,
  * @param transition Installed quest metadata naming the Reward Site.
  * @param item Receives the site's item replacement.
  * @param characterObject Receives the site's selected-character compare-and-set.
- * @return False when the site is absent, has another shape, or disagrees with quest metadata.
+ * @return The first failed contract, or ready after both operations match quest metadata.
  */
-[[nodiscard]] bool
+[[nodiscard]] CompletionResolution
 resolve_completion(const items::QuestTransition& transition,
                    reward_sites::ItemProgression& item,
                    reward_sites::CharacterObjectTransition& characterObject) noexcept {
     reward_sites::Definition site{};
     if (transition.completionEffect == items::kUnavailableQuestCompletionEffect
         || !reward_sites::find(transition.completionEffect, site)) {
-        return false;
+        return CompletionResolution::missingCoverage;
     }
-    return read_completion_operations(site, item, characterObject)
-           && completion_matches_transition(transition, item, characterObject);
+    if (site.itemProgressionCount != kQuestCompletionOperationCount
+        || site.characterObjectTransitionCount != kQuestCompletionOperationCount) {
+        return CompletionResolution::unsupportedShape;
+    }
+    if (!read_completion_operations(site, item, characterObject)) {
+        return CompletionResolution::unresolvedOperations;
+    }
+    return completion_matches_transition(transition, item, characterObject)
+               ? CompletionResolution::ready
+               : CompletionResolution::transitionMismatch;
 }
 
 /**
- * Resolves each native predicate from its authoritative server state.
+ * Resolves supported predicate inputs from current server state.
+ * Slot 462's native Power aggregation remains unverified.
  * @param transition Validated character quest contract.
  * @param account Validated account containing the selected character and equipment.
  * @param characterIndex Selected character row.
@@ -92,9 +126,9 @@ resolve_completion(const items::QuestTransition& transition,
                                   std::size_t characterIndex,
                                   Family5State& family) noexcept {
     Family5State global{};
-    equipment::light::Evaluation equipmentPower{};
+    equipment::light::Evaluation configuredPower{};
     bool globalLoaded = false;
-    bool equipmentPowerLoaded = false;
+    bool configuredPowerLoaded = false;
     family = {};
     for (std::size_t index = 0; index < transition.objectiveCount; ++index) {
         const auto& predicate = transition.objectives[index];
@@ -104,14 +138,15 @@ resolve_completion(const items::QuestTransition& transition,
                     account.characters[characterIndex].soid, predicate.valueSlot, value)) {
                 return false;
             }
-        } else if (predicate.input == items::QuestPredicate::Input::equipmentPower) {
-            if (!equipmentPowerLoaded
+        } else if (predicate.input == items::QuestPredicate::Input::powerCondition) {
+            // Slot 462 currently uses the configured aggregate, not character_light().
+            if (!configuredPowerLoaded
                 && !equipment::light::resolution::resolve(
-                    account, characterIndex, equipmentPower)) {
+                    account, characterIndex, configuredPower)) {
                 return false;
             }
-            equipmentPowerLoaded = true;
-            value = equipmentPower.average;
+            configuredPowerLoaded = true;
+            value = configuredPower.average;
         } else if (predicate.input == items::QuestPredicate::Input::family5) {
             if (!globalLoaded && !investment::store::read_family5(global)) {
                 return false;
@@ -297,14 +332,29 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
     mutation = {};
     reward_sites::ItemProgression itemProgression{};
     reward_sites::CharacterObjectTransition characterObjectTransition{};
-    if (!items::valid(transition) || sourceInstanceSoid == 0
-        || !resolve_completion(transition, itemProgression, characterObjectTransition)) {
+    if (!items::valid(transition) || sourceInstanceSoid == 0) {
+        log_refusal(transition, "invalid_contract");
+        return false;
+    }
+    const CompletionResolution completion =
+        resolve_completion(transition, itemProgression, characterObjectTransition);
+    if (completion != CompletionResolution::ready) {
+        const char* reason = "transition_mismatch";
+        if (completion == CompletionResolution::missingCoverage) {
+            reason = "missing_coverage";
+        } else if (completion == CompletionResolution::unsupportedShape) {
+            reason = "unsupported_shape";
+        } else if (completion == CompletionResolution::unresolvedOperations) {
+            reason = "unresolved_operations";
+        }
+        log_refusal(transition, reason);
         return false;
     }
 
     AccountState before{};
     Family5State family{};
     if (!investment::store::read_account(before) || !account::valid(before)) {
+        log_refusal(transition, "state_unavailable");
         return false;
     }
     const auto characterIndex = selected_character_index(before);
@@ -312,15 +362,25 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         return false;
     }
     const auto& character = before.characters[characterIndex];
-    if (!resolve_inputs(transition, before, characterIndex, family)
-        || !items::complete(transition, family)) {
+    if (!resolve_inputs(transition, before, characterIndex, family)) {
+        log_refusal(transition, "unresolved_input");
+        return false;
+    }
+    if (!items::complete(transition, family)) {
         return false;
     }
     items::Definition source{}, successor{};
     CharacterItemLocation location{};
-    if (!character_value_matches(characterObjectTransition)
-        || !resolve_progression_items(itemProgression, source, successor)
-        || !resolve_owned_source(character, sourceInstanceSoid, source, successor, location)) {
+    if (!character_value_matches(characterObjectTransition)) {
+        log_refusal(transition, "state_mismatch");
+        return false;
+    }
+    if (!resolve_progression_items(itemProgression, source, successor)) {
+        log_refusal(transition, "installed_identity_mismatch");
+        return false;
+    }
+    if (!resolve_owned_source(character, sourceInstanceSoid, source, successor, location)) {
+        log_refusal(transition, "ownership_mismatch");
         return false;
     }
 
@@ -332,6 +392,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
         || !loadout::resolve(before, characterIndex, beforeLoadout)
         || !find_unequipped_row(beforeLoadout, sourceInstanceSoid, sourceRow, sourceSlot)
         || sourceSlot != kPursuitEquipmentSlot) {
+        log_refusal(transition, "replacement_unavailable");
         return false;
     }
 
@@ -353,6 +414,7 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
                                   sourceInstanceSoid,
                                   successorSoid,
                                   successorRow)) {
+        log_refusal(transition, "replacement_mismatch");
         return false;
     }
 
@@ -381,18 +443,27 @@ bool prepare_quest_transition(std::uint64_t sourceInstanceSoid,
 }
 
 /** Prepares one event-driven owned-stage completion without polling at login. */
-bool prepare_completed_quest_transition(PendingQuestTransition& mutation) noexcept {
+QuestCompletionPreparation
+prepare_completed_quest_transition(std::uint64_t characterSoid,
+                                   PendingQuestTransition& mutation) noexcept {
     mutation = {};
+    if (characterSoid == 0) {
+        return QuestCompletionPreparation::noWork;
+    }
     AccountState account{};
     {
         const std::lock_guard lock(investment::store::g_mutex);
-        if (!investment::store::read_account(account) || !account::valid(account)) {
-            return false;
+        if (!investment::store::read_account(account)) {
+            return QuestCompletionPreparation::retry;
         }
     }
+    if (!account::valid(account)) {
+        return QuestCompletionPreparation::noWork;
+    }
     const std::size_t characterIndex = selected_character_index(account);
-    if (characterIndex >= account.characterCount) {
-        return false;
+    if (characterIndex >= account.characterCount
+        || account.characters[characterIndex].soid != characterSoid) {
+        return QuestCompletionPreparation::noWork;
     }
     const auto& character = account.characters[characterIndex];
     for (std::size_t index = 0; index < character.inventory.count; ++index) {
@@ -402,10 +473,12 @@ bool prepare_completed_quest_transition(PendingQuestTransition& mutation) noexce
         if (build_data::find_item_definition_hash(owned.definitionHash, definition)
             && build_data::find_quest_transition(definition.definitionIndex, transition)
             && prepare_quest_transition(owned.instanceSoid, transition, mutation)) {
-            return true;
+            return mutation.beforeCharacter.soid == characterSoid
+                       ? QuestCompletionPreparation::ready
+                       : QuestCompletionPreparation::noWork;
         }
     }
-    return false;
+    return QuestCompletionPreparation::noWork;
 }
 
 /**
@@ -429,6 +502,7 @@ bool preview_quest_transition(const items::QuestTransition& transition,
     if (!same_prepared_transition(mutation, rebuilt) || !investment::store::read_account(after)
         || !investment::store::read_unlocks(afterUnlocks,
                                             static_cast<int>(mutation.characterIndex))) {
+        log_refusal(transition, "stale_state");
         return false;
     }
     after.characters[mutation.characterIndex] = rebuilt.afterCharacter;

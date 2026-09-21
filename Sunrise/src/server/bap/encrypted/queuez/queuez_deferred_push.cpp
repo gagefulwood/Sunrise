@@ -9,45 +9,14 @@
 #include "../../../../state/activity/destination/definition.h"
 #include "../../../../state/activity/runtime.h"
 #include "../../../../state/runtime/runtime.h"
-#include "../../../../state/runtime/state_quest_transition_runtime.h"
 #include "../internal.h"
 #include "../push/activity/activity_keepalive_push.h"
+#include "quest_completion_processing.h"
 #include "queuez_state_validation.h"
 #include "state/investment/store_internal.h"
 
 namespace sunrise::server::bap::encrypted {
 namespace {
-
-/**
- * Spends one gear-change arm on a supported owned quest completion.
- * A successful commit arms Family 5 before Family 4; a refusal publishes neither.
- * @param session Authenticated connection that observed the progression event.
- */
-void process_quest_completion(Session& session) noexcept {
-    if (!session.questCompletionArmed) {
-        return;
-    }
-    session.questCompletionArmed = false;
-    state::PendingQuestTransition pending{};
-    if (!state::prepare_completed_quest_transition(pending)) {
-        return;
-    }
-    const auto transition = pending.transition;
-    if (!state::commit_quest_transition(transition, pending)) {
-        core::log::write(core::log::Channel::server,
-                         core::log::Level::warn,
-                         "ev=quest_completion stage=transaction_commit result=fail");
-        return;
-    }
-    core::log::write(core::log::Channel::server,
-                     core::log::Level::debug,
-                     "ev=quest_completion stage=transaction_commit result=ok");
-    session.investmentRefreshArmed = true;
-    if (session.queuez.family4Active) {
-        session.accountResyncArmed = true;
-    }
-    bap::arm_account_resync_elsewhere(session);
-}
 
 /** @return The peer's retained row overlay, or empty once its presentation hold has passed. */
 [[nodiscard]] std::span<const queuez::AcquisitionPresentationRow>
@@ -693,7 +662,7 @@ bool consume_deferred(Session& session,
     if (!session.authenticated) {
         return false;
     }
-    process_quest_completion(session);
+    static_cast<void>(queuez::process_quest_completion(session));
     // Dependent publications wait until the current character's overrides fit the frame.
     if (session.investmentRefreshArmed) {
         return consume_investment_refresh(session, scratch, response, written, touchesScratch)

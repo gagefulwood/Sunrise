@@ -21,6 +21,7 @@
 #include "bap_connection_publication.h"
 #include "internal.h"
 #include "push/activity/activity_roster_push.h"
+#include "queuez/quest_completion_processing.h"
 #include "queuez/queuez_outcome_staging.h"
 #include "state/investment/store_internal.h"
 #include "transactions/service_outcome_commit.h"
@@ -30,18 +31,6 @@ namespace {
 
 /** Delay before the Family-4 copy of an artifact change, so its Family-5 refresh lands first. */
 constexpr std::uint64_t kArtifactFamily4RefreshDelayMs = 100;
-
-/**
- * Checks whether one prepared equipment transaction can change equipped-item Power.
- * @param transaction Equipment transaction staged for this service request, or null.
- * @return True only for the eight weapon and armor slots used by equipment Power.
- */
-[[nodiscard]] bool changes_equipment_power(const EquipmentSwapTransaction* transaction) noexcept {
-    namespace inventory = state::account::inventory;
-    return transaction != nullptr && transaction->pending != nullptr
-           && transaction->pending->equipmentSlotIndex
-                  <= static_cast<std::size_t>(inventory::EquipmentSlot::classItem);
-}
 
 /** Traces one decoded service frame and the reply it produced. */
 void report_service_traffic(const middleware::bap::RequestFrame& frame,
@@ -409,8 +398,8 @@ bool consume(Session& session,
         }
     }
     const bool artifactPurchase = transaction_if<ArtifactPurchaseTransaction>(outcome) != nullptr;
-    const bool armsQuestCompletion =
-        changes_equipment_power(transaction_if<EquipmentSwapTransaction>(outcome));
+    const std::uint64_t questCompletionCharacter =
+        queuez::quest_completion_event_character(outcome);
     const bool mutatesAccount =
         outcome.hasSelectCharacter || outcome.hasRecordClaim || outcome.hasArtifactReset
         || transaction_if<EquipmentSwapTransaction>(outcome) != nullptr
@@ -560,8 +549,10 @@ bool consume(Session& session,
             if (artifactPurchase || outcome.hasArtifactReset) {
                 session.investmentRefreshArmed = true;
             }
-            if (armsQuestCompletion) {
-                session.questCompletionArmed = true;
+            if (outcome.hasChangeCharacter || outcome.hasSelectCharacter) {
+                queuez::cancel_quest_completion(session);
+            } else if (questCompletionCharacter != 0) {
+                queuez::arm_quest_completion(session, questCompletionCharacter);
             }
             if (artifactPurchase || outcome.hasArtifactReset) {
                 // Artifact overrides live in Family 5, so they need their own refresh. A record

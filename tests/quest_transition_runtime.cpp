@@ -1,12 +1,16 @@
 #include <array>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <memory>
 #include <string>
 
 #include "core/logging/log.h"
 #include "middleware/encoding/bit_reader.h"
 #include "middleware/web_service/messages/family5_codec.h"
+#include "server/bap/encrypted/internal.h"
+#include "server/bap/encrypted/queuez/quest_completion_processing.h"
 #include "state/equipment/light/resolution/configured_equipment_light_resolver.h"
 #include "state/investment/store_internal.h"
 #include "state/runtime/state_account_transaction_helpers.h"
@@ -26,28 +30,45 @@ namespace runtime_detail = state::runtime::detail;
 constexpr std::uint64_t kAccount = 1001, kCharacter = 1002, kOtherCharacter = 1003, kSource = 1004;
 /** Two synthetic item rows exercise the same pursuit bucket. */
 constexpr std::uint32_t kSourceHash = 2001, kSuccessorHash = 2002;
+/** A second independent stage proves deferred work is serviced one transition at a time. */
+constexpr std::uint64_t kSecondSource = 1005;
+constexpr std::uint32_t kSecondSourceHash = 2003, kSecondSuccessorHash = 2004;
+/** Fixture catalogue positions pair each source with its successor. */
+constexpr std::uint16_t kSourceItemIndex = 0, kSuccessorItemIndex = 1, kSecondSourceItemIndex = 2,
+                        kSecondSuccessorItemIndex = 3;
+constexpr std::array<std::uint32_t, 4> kDefinitionHashes = {
+    kSourceHash, kSuccessorHash, kSecondSourceHash, kSecondSuccessorHash};
 /** Synthetic step values deliberately decrease; identifiers are not progress counts. */
 constexpr std::int32_t kCurrentValue = 300, kNextValue = 100;
+constexpr std::int32_t kSecondCurrentValue = 301, kSecondNextValue = 101;
 /** One saved character bank row and one global override slot belong to this fixture. */
 constexpr std::uint16_t kQuestRow = 12, kValueSlot = 17;
+constexpr std::uint16_t kSecondQuestRow = 13;
 /** Synthetic completion row proves unresolved effects are refused. */
 constexpr std::uint16_t kUnresolvedCompletionEffect = 7;
 /** The fixture Reward Site owns the supported item and character-object operations. */
 constexpr std::uint16_t kRewardSiteIndex = 11481;
+constexpr std::uint16_t kSecondRewardSiteIndex = 11482;
 /** Test threshold crosses the 16-bit boundary to detect narrowed constants. */
 constexpr std::int32_t kMinimumValue = 70000;
-/** Unlimited Power's first retained predicate completes at equipment Power 899. */
-constexpr std::int32_t kEquipmentPowerThreshold = 899;
+/** Unlimited Power's first retained predicate compares slot 462 against 899. */
+constexpr std::int32_t kPowerConditionThreshold = 899;
 /** Fixture capacity is adjustable to test the State boundary's resolver rejection. */
 std::size_t g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
 /** Controlled equipment result isolates the quest runtime's input selection. */
-std::int32_t g_equipmentPower = kEquipmentPowerThreshold;
+std::int32_t g_configuredPower = kPowerConditionThreshold;
 /** Tests can refuse equipment resolution without malformed account state. */
-bool g_equipmentPowerAvailable = true;
+bool g_configuredPowerAvailable = true;
 /** Tests can withdraw the build-bound Reward Site without changing quest metadata. */
 bool g_rewardSiteAvailable = true;
+/** Test catalog can expose a row that the one-for-one quest adapter must refuse. */
+bool g_unsupportedSiteShape = false;
 /** Tests can reject an installed-item identity mismatch at Reward Site resolution. */
 bool g_rewardItemIdentitiesValid = true;
+/** Counts production peer-publication requests without constructing the global session table. */
+std::size_t g_peerResyncCount = 0;
+/** Captures one structured refusal from the production logger call. */
+std::string g_lastLog;
 
 /** @param passed Condition to enforce. @param label Identifies the failed check. */
 void check(bool passed, const char* label) {
@@ -78,14 +99,26 @@ std::string read_text(const std::string& path) {
 /** @return A synthetic decoded contract backed by the fixture Reward Site. */
 items::QuestTransition contract() {
     items::QuestTransition result{};
-    result.sourceItemIndex = 0;
-    result.successorItemIndex = 1;
+    result.sourceItemIndex = kSourceItemIndex;
+    result.successorItemIndex = kSuccessorItemIndex;
     result.currentValue = kCurrentValue;
     result.nextValue = kNextValue;
     result.valueRow = kQuestRow;
     result.objectiveCount = 1;
     result.objectives[0] = {kValueSlot, kMinimumValue};
     result.completionEffect = kRewardSiteIndex;
+    return result;
+}
+
+/** @return A second independent fixture transition with the same satisfied predicate. */
+items::QuestTransition second_contract() {
+    auto result = contract();
+    result.sourceItemIndex = kSecondSourceItemIndex;
+    result.successorItemIndex = kSecondSuccessorItemIndex;
+    result.currentValue = kSecondCurrentValue;
+    result.nextValue = kSecondNextValue;
+    result.valueRow = kSecondQuestRow;
+    result.completionEffect = kSecondRewardSiteIndex;
     return result;
 }
 
@@ -96,12 +129,12 @@ items::QuestTransition unresolved_contract() {
     return result;
 }
 
-/** @return The fixture contract bound to the selected character's equipment Power. */
-items::QuestTransition equipment_power_contract() {
+/** @return The fixture contract bound to Sunrise's current slot-462 input mapping. */
+items::QuestTransition power_condition_contract() {
     auto result = contract();
-    result.objectives[0] = {items::kEquipmentPowerValueSlot,
-                            kEquipmentPowerThreshold,
-                            items::QuestPredicate::Input::equipmentPower};
+    result.objectives[0] = {items::kPowerConditionValueSlot,
+                            kPowerConditionThreshold,
+                            items::QuestPredicate::Input::powerCondition};
     return result;
 }
 
@@ -131,10 +164,30 @@ void reset_fixture() {
     family.values[0] = {kValueSlot, kMinimumValue};
     check(store::write_family5(family), "seed objective input");
     g_bucketCapacity = state::account::inventory::kCharacterItemCapacity;
-    g_equipmentPower = kEquipmentPowerThreshold;
-    g_equipmentPowerAvailable = true;
+    g_configuredPower = kPowerConditionThreshold;
+    g_configuredPowerAvailable = true;
     g_rewardSiteAvailable = true;
+    g_unsupportedSiteShape = false;
     g_rewardItemIdentitiesValid = true;
+    g_peerResyncCount = 0;
+    g_lastLog.clear();
+}
+
+/** Adds another independently completable stage to the selected character. */
+void seed_second_completed_stage() {
+    state::AccountState account{};
+    check(store::read_account(account), "read account for second completed stage");
+    auto& inventory = account.characters[0].inventory;
+    auto& source = inventory.values[inventory.count];
+    source.instanceSoid = kSecondSource;
+    source.definitionHash = kSecondSourceHash;
+    source.quantity = 1;
+    source.mutationSerial = 2;
+    ++inventory.count;
+    check(store::write_account(account), "seed second completed stage");
+    check(store::write_unlock(
+              store::Bank::characterObjectValues, kSecondQuestRow, kSecondCurrentValue),
+          "seed second stage value");
 }
 
 /**
@@ -305,6 +358,8 @@ void verify_runtime() {
     check(!state::prepare_quest_transition(kSource, unresolved_contract(), pending)
               && !pending.prepared,
           "unresolved effects rejected by default");
+    check(g_lastLog.find("reason=missing_coverage site=7 source_item=0") != std::string::npos,
+          "missing coverage log lacks site and source");
     check_unchanged();
 
     reset_fixture();
@@ -314,9 +369,19 @@ void verify_runtime() {
     check_unchanged();
 
     reset_fixture();
+    g_unsupportedSiteShape = true;
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
+          "unsupported operation count accepted");
+    check(g_lastLog.find("reason=unsupported_shape site=11481 source_item=0") != std::string::npos,
+          "unsupported shape log lacks contract identity");
+    check_unchanged();
+
+    reset_fixture();
     g_rewardItemIdentitiesValid = false;
     check(!state::prepare_quest_transition(kSource, contract(), pending),
           "Reward Site item identity mismatch accepted");
+    check(g_lastLog.find("reason=unresolved_operations site=11481") != std::string::npos,
+          "unresolved operation log lacks site");
     check_unchanged();
 
     // A replacement may use the row its source occupied in a full bucket.
@@ -374,6 +439,11 @@ void verify_runtime() {
     pending = prepare();
     auto changed = contract();
     --changed.nextValue;
+    check(!state::prepare_quest_transition(kSource, changed, pending),
+          "mismatched transition accepted at prepare");
+    check(g_lastLog.find("reason=transition_mismatch site=11481") != std::string::npos,
+          "transition mismatch log lacks site");
+    pending = prepare();
     check(!state::commit_quest_transition(changed, pending), "changed metadata rejected");
     check_unchanged();
 
@@ -408,6 +478,8 @@ void verify_runtime() {
     check(store::write_account(after), "remove source stage");
     check(!state::prepare_quest_transition(kSource, contract(), pending),
           "missing source stage accepted");
+    check(g_lastLog.find("reason=ownership_mismatch site=11481") != std::string::npos,
+          "ownership refusal log lacks site");
 
     reset_fixture();
     check(store::read_account(after), "read before equipping source");
@@ -470,12 +542,21 @@ void verify_runtime() {
           "stale quest state changed inventory");
 
     reset_fixture();
+    check(store::write_unlock(store::Bank::characterObjectValues, kQuestRow, kCurrentValue + 1),
+          "change stage before diagnostic prepare");
+    check(!state::prepare_quest_transition(kSource, contract(), pending),
+          "mismatched stage accepted at prepare");
+    check(g_lastLog.find("reason=state_mismatch site=11481") != std::string::npos,
+          "stage mismatch log lacks site");
+
+    reset_fixture();
     pending = prepare();
     check(store::read_account(after), "read before serial change");
     ++after.characters[0].nextInventorySerial;
     check(store::write_account(after), "change inventory generation");
     check(!state::commit_quest_transition(contract(), pending), "stale inventory rejected");
     check_unchanged();
+    std::puts("PASS: bounded quest prepare-refusal diagnostics");
     std::puts("PASS: State transition, stale guards, replay and SQLite rollback");
 }
 
@@ -483,46 +564,154 @@ void verify_runtime() {
 void verify_event_preparation() {
     reset_fixture();
     state::PendingQuestTransition pending{};
-    check(state::prepare_completed_quest_transition(pending) && pending.prepared
-              && pending.sourceInstanceSoid == kSource
+    check(state::prepare_completed_quest_transition(kCharacter, pending)
+                  == state::QuestCompletionPreparation::ready
+              && pending.prepared && pending.sourceInstanceSoid == kSource
               && pending.transition.completionEffect == kRewardSiteIndex,
           "owned completed stage was not prepared from the event adapter");
 
     state::Family5State family{};
     check(store::write_family5(family), "clear event predicate");
-    check(!state::prepare_completed_quest_transition(pending) && !pending.prepared,
+    check(state::prepare_completed_quest_transition(kCharacter, pending)
+                  == state::QuestCompletionPreparation::noWork
+              && !pending.prepared,
           "incomplete stage was prepared by the event adapter");
     std::puts("PASS: event-driven owned-stage discovery without login polling");
 }
 
-/** Proves equipment Power, not a same-slot Family-5 override, controls the predicate. */
-void verify_equipment_power_input() {
+/** Exercises the production event classifier and bounded deferred completion obligation. */
+void verify_deferred_completion_processing() {
+    namespace bap = sunrise::server::bap;
+    namespace encrypted = bap::encrypted;
+    namespace processing = encrypted::queuez;
+
+    encrypted::ServiceOutcome acquisition{};
+    auto* acquisitionTransaction =
+        encrypted::emplace_transaction<encrypted::ItemAcquisitionTransaction>(acquisition);
+    check(acquisitionTransaction != nullptr, "allocate acquisition event fixture");
+    acquisitionTransaction->pending = std::make_unique<state::PendingItemAcquisition>();
+    acquisitionTransaction->pending->characterSoid = kCharacter;
+    check(processing::quest_completion_event_character(acquisition) == kCharacter,
+          "character acquisition did not arm completion work");
+
+    encrypted::ServiceOutcome equipment{};
+    auto* equipmentTransaction =
+        encrypted::emplace_transaction<encrypted::EquipmentSwapTransaction>(equipment);
+    check(equipmentTransaction != nullptr, "allocate equipment event fixture");
+    equipmentTransaction->pending = std::make_unique<state::PendingEquipmentSwap>();
+    equipmentTransaction->pending->characterSoid = kCharacter;
+    equipmentTransaction->pending->equipmentSlotIndex =
+        static_cast<std::size_t>(state::account::inventory::EquipmentSlot::classItem);
+    check(processing::quest_completion_event_character(equipment) == kCharacter,
+          "Power-bearing equipment change did not arm completion work");
+    ++equipmentTransaction->pending->equipmentSlotIndex;
+    check(processing::quest_completion_event_character(equipment) == 0,
+          "non-Power equipment change armed completion work");
+
+    reset_fixture();
+    seed_second_completed_stage();
+    bap::Session session{};
+    session.queuez.family4Active = true;
+    processing::arm_quest_completion(session, kCharacter);
+    check(processing::process_quest_completion(session)
+                  == processing::QuestCompletionResult::advanced
+              && session.questCompletion.armed && session.investmentRefreshArmed
+              && session.accountResyncArmed && g_peerResyncCount == 1,
+          "first deferred stage did not advance and arm publications");
+    check(processing::process_quest_completion(session)
+              == processing::QuestCompletionResult::waitingForPublication,
+          "second stage overtook the first stage publications");
+    session.investmentRefreshArmed = false;
+    session.accountResyncArmed = false;
+    check(processing::process_quest_completion(session)
+                  == processing::QuestCompletionResult::advanced
+              && session.questCompletion.armed && g_peerResyncCount == 2,
+          "second eligible stage was lost");
+    session.investmentRefreshArmed = false;
+    session.accountResyncArmed = false;
+    check(processing::process_quest_completion(session) == processing::QuestCompletionResult::noWork
+              && !session.questCompletion.armed,
+          "completed batch left an armed scan");
+
+    reset_fixture();
+    session = {};
+    processing::arm_quest_completion(session, kCharacter);
+    check(store::execute("CREATE TEMP TRIGGER reject_deferred_stage BEFORE INSERT ON unlocks "
+                         "BEGIN SELECT RAISE(ABORT, 'forced deferred failure'); END"),
+          "install deferred failure trigger");
+    check(processing::process_quest_completion(session)
+                  == processing::QuestCompletionResult::retryScheduled
+              && session.questCompletion.armed && session.questCompletion.retryCount == 1,
+          "transient commit failure did not retain one retry");
+    check(g_lastLog.find("reason=commit_refused_or_failed site=11481") != std::string::npos,
+          "deferred commit warning lacks site");
+    check_unchanged();
+    check(store::execute("DROP TRIGGER reject_deferred_stage"), "drop deferred failure trigger");
+    check(processing::process_quest_completion(session)
+              == processing::QuestCompletionResult::advanced,
+          "retained deferred work did not recover");
+    session.investmentRefreshArmed = false;
+    processing::arm_quest_completion(session, kCharacter);
+    check(processing::process_quest_completion(session) == processing::QuestCompletionResult::noWork
+              && !session.questCompletion.armed,
+          "repeated event duplicated an advanced stage");
+
+    reset_fixture();
+    session = {};
+    processing::arm_quest_completion(session, kCharacter);
+    state::AccountState switched{};
+    check(store::read_account(switched), "read account before deferred character switch");
+    switched.characters[0].selected = false;
+    switched.characters[1].selected = true;
+    check(store::write_account(switched), "switch character before deferred processing");
+    check(processing::process_quest_completion(session) == processing::QuestCompletionResult::noWork
+              && !session.questCompletion.armed,
+          "work escaped its event character");
+    switched.characters[0].selected = true;
+    switched.characters[1].selected = false;
+    check(store::write_account(switched), "restore event character selection");
+    check_unchanged();
+
+    reset_fixture();
+    session = {};
+    g_rewardSiteAvailable = false;
+    processing::arm_quest_completion(session, kCharacter);
+    check(processing::process_quest_completion(session) == processing::QuestCompletionResult::noWork
+              && processing::process_quest_completion(session)
+                     == processing::QuestCompletionResult::idle,
+          "unsupported stage retried indefinitely");
+    check_unchanged();
+    std::puts("PASS: character-bound bounded deferred quest completion orchestration");
+}
+
+/** Verifies current slot-462 wiring without claiming that it is the native Power formula. */
+void verify_power_condition_input() {
     reset_fixture();
     state::Family5State misleading{};
     misleading.valueCount = 1;
-    misleading.values[0] = {items::kEquipmentPowerValueSlot, kEquipmentPowerThreshold + 100};
+    misleading.values[0] = {items::kPowerConditionValueSlot, kPowerConditionThreshold + 100};
     check(store::write_family5(misleading), "seed misleading Power override");
 
-    const auto transition = equipment_power_contract();
+    const auto transition = power_condition_contract();
     state::PendingQuestTransition pending{};
-    g_equipmentPower = kEquipmentPowerThreshold - 1;
+    g_configuredPower = kPowerConditionThreshold - 1;
     check(!state::prepare_quest_transition(kSource, transition, pending),
-          "Family-5 override completed low equipment Power");
+          "Family-5 override completed a low configured Power input");
 
     misleading.values[0].value = 0;
     check(store::write_family5(misleading), "lower misleading Power override");
-    g_equipmentPower = kEquipmentPowerThreshold;
+    g_configuredPower = kPowerConditionThreshold;
     check(state::prepare_quest_transition(kSource, transition, pending),
           "equipment threshold did not complete");
-    g_equipmentPower = kEquipmentPowerThreshold + 1;
+    g_configuredPower = kPowerConditionThreshold + 1;
     check(!state::commit_quest_transition(transition, pending),
-          "changed equipment Power did not stale the prepared transition");
+          "changed configured Power input did not stale the prepared transition");
     check_unchanged();
 
-    g_equipmentPowerAvailable = false;
+    g_configuredPowerAvailable = false;
     check(!state::prepare_quest_transition(kSource, transition, pending),
           "missing equipment evaluation was accepted");
-    std::puts("PASS: equipment Power input selection, threshold and stale guard");
+    std::puts("PASS: current Power-condition input mapping, threshold and stale guard");
 }
 
 /** Checks ownership, missing values, stale counters and joined transaction rollback. */
@@ -692,33 +881,39 @@ namespace sunrise::state::build_data {
 
 /** Test catalogue substitute; production uses installed build data. */
 bool find_item_definition_index(std::uint16_t index, items::Definition& definition) noexcept {
-    if (index > 1) {
+    if (index >= kDefinitionHashes.size()) {
         return false;
     }
     definition = {};
     definition.definitionIndex = index;
-    definition.definitionHash = index == 0 ? kSourceHash : kSuccessorHash;
+    definition.definitionHash = kDefinitionHashes[index];
     definition.bucketId = items::kPursuitBucketId;
     return true;
 }
 
 /** Test catalogue lookup for the shared inventory helpers linked into this executable. */
 bool find_item_definition_hash(std::uint32_t hash, items::Definition& definition) noexcept {
-    if (hash != kSourceHash && hash != kSuccessorHash) {
-        return false;
+    for (std::size_t index = 0; index < kDefinitionHashes.size(); ++index) {
+        if (kDefinitionHashes[index] == hash) {
+            return find_item_definition_index(static_cast<std::uint16_t>(index), definition);
+        }
     }
-    return find_item_definition_index(hash == kSourceHash ? 0 : 1, definition);
+    return false;
 }
 
-/** Test transition lookup mirrors the one retained source row. */
+/** Test transition lookup mirrors the two retained source rows. */
 bool find_quest_transition(std::uint16_t sourceItemIndex,
                            items::QuestTransition& transition) noexcept {
     transition = {};
-    if (sourceItemIndex != 0) {
-        return false;
+    if (sourceItemIndex == kSourceItemIndex) {
+        transition = contract();
+        return true;
     }
-    transition = contract();
-    return true;
+    if (sourceItemIndex == kSecondSourceItemIndex) {
+        transition = second_contract();
+        return true;
+    }
+    return false;
 }
 
 /** Native detail resolution is deliberately outside this State-only executable. */
@@ -730,42 +925,57 @@ bool find_configured_item_detail(std::uint16_t, items::details::Definition&) noe
 
 namespace sunrise::state::build_data::reward_sites {
 
-/** Test catalog contains one build-bound Reward Site while the availability gate is set. */
+/** Test catalog contains two build-bound Reward Sites while the availability gate is set. */
 bool find(std::uint16_t siteIndex, Definition& definition) noexcept {
     definition = {};
-    if (!g_rewardSiteAvailable || siteIndex != kRewardSiteIndex) {
+    if (!g_rewardSiteAvailable
+        || (siteIndex != kRewardSiteIndex && siteIndex != kSecondRewardSiteIndex)) {
         return false;
     }
     definition.siteIndex = siteIndex;
-    definition.itemProgressionCount = 1;
+    definition.itemProgressionCount = g_unsupportedSiteShape ? 2 : 1;
     definition.characterObjectTransitionCount = 1;
     definition.provenance = Provenance::reconstructed;
     return true;
 }
 
-/** Supplies the site's one checked item replacement. */
+/** Supplies each site's one checked item replacement. */
 bool item_progressions(const Definition& definition,
                        std::span<ItemProgression> output,
                        std::size_t& count) noexcept {
     count = 0;
-    if (!g_rewardItemIdentitiesValid || definition.siteIndex != kRewardSiteIndex
-        || output.empty()) {
+    if (!g_rewardItemIdentitiesValid || output.empty()) {
         return false;
     }
-    output.front() = {kSourceHash, kSuccessorHash, 0, 1};
+    if (definition.siteIndex == kRewardSiteIndex) {
+        output.front() = {kSourceHash, kSuccessorHash, kSourceItemIndex, kSuccessorItemIndex};
+    } else if (definition.siteIndex == kSecondRewardSiteIndex) {
+        output.front() = {kSecondSourceHash,
+                          kSecondSuccessorHash,
+                          kSecondSourceItemIndex,
+                          kSecondSuccessorItemIndex};
+    } else {
+        return false;
+    }
     count = 1;
     return true;
 }
 
-/** Supplies the site's one selected-character compare-and-set. */
+/** Supplies each site's one selected-character compare-and-set. */
 bool character_object_transitions(const Definition& definition,
                                   std::span<CharacterObjectTransition> output,
                                   std::size_t& count) noexcept {
     count = 0;
-    if (definition.siteIndex != kRewardSiteIndex || output.empty()) {
+    if (output.empty()) {
         return false;
     }
-    output.front() = {kCurrentValue, kNextValue, kQuestRow};
+    if (definition.siteIndex == kRewardSiteIndex) {
+        output.front() = {kCurrentValue, kNextValue, kQuestRow};
+    } else if (definition.siteIndex == kSecondRewardSiteIndex) {
+        output.front() = {kSecondCurrentValue, kSecondNextValue, kSecondQuestRow};
+    } else {
+        return false;
+    }
     count = 1;
     return true;
 }
@@ -777,7 +987,26 @@ namespace sunrise::core::log {
 /** The offline fixture never creates a game log or debugger sink. */
 void write(Channel, Level, std::string_view) noexcept {}
 
+/** Captures the last structured log without installing process-wide sinks. */
+void writef(Channel, Level, const char* format, ...) noexcept {
+    std::array<char, kLineCapacity> line{};
+    va_list arguments;
+    va_start(arguments, format);
+    const int written = std::vsnprintf(line.data(), line.size(), format, arguments);
+    va_end(arguments);
+    g_lastLog = written > 0 ? std::string(line.data()) : std::string{};
+}
+
 } // namespace sunrise::core::log
+
+namespace sunrise::server::bap {
+
+/** Records the production helper's cross-peer publication request. */
+void arm_account_resync_elsewhere(Session&) noexcept {
+    ++g_peerResyncCount;
+}
+
+} // namespace sunrise::server::bap
 
 namespace sunrise::state::runtime::detail {
 
@@ -800,11 +1029,11 @@ bool resolve(const AccountState& account,
              std::size_t selectedCharacterIndex,
              Evaluation& output) noexcept {
     output = {};
-    if (!g_equipmentPowerAvailable || selectedCharacterIndex >= account.characterCount
+    if (!g_configuredPowerAvailable || selectedCharacterIndex >= account.characterCount
         || !account.characters[selectedCharacterIndex].selected) {
         return false;
     }
-    output.average = g_equipmentPower;
+    output.average = g_configuredPower;
     return true;
 }
 
@@ -847,7 +1076,8 @@ int main(int argc, char** argv) {
           "new in-memory store");
     verify_runtime();
     verify_event_preparation();
-    verify_equipment_power_input();
+    verify_deferred_completion_processing();
+    verify_power_condition_input();
     verify_character_objectives();
     verify_objective_publication();
     verify_quest_transition_catalog();

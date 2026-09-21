@@ -161,6 +161,18 @@ void verify_catalog(std::string_view schema, std::string_view definitions) {
               && missing.siteIndex == sites::kUnavailableSiteIndex
               && missing.itemProgressionCount == 0 && missing.characterObjectTransitionCount == 0,
           "unknown site returned data");
+
+    std::string emptyDefinitions(definitions);
+    emptyDefinitions += "\nDELETE FROM reward_site_character_object_transitions;"
+                        "\nDELETE FROM reward_site_item_progressions;"
+                        "\nDELETE FROM reward_sites;";
+    check(sites::load(test_data::kSupportedBuild, schema, emptyDefinitions),
+          "supported build without definitions was rejected");
+    check(!sites::ready() && sites::count() == 0 && !sites::find(test_data::kSiteIndex, missing),
+          "empty supported catalog left stale definitions available");
+
+    check(sites::load(test_data::kSupportedBuild, schema, definitions),
+          "populated catalog did not reload after empty coverage");
     check(!sites::load(test_data::kUnsupportedBuild, schema, definitions),
           "unsupported build accepted definitions");
     check(sites::ready() && sites::count() == test_data::kExpectedSiteCount
@@ -174,6 +186,13 @@ void verify_catalog(std::string_view schema, std::string_view definitions) {
     check(sites::ready() && sites::count() == test_data::kExpectedSiteCount
               && sites::find(test_data::kSiteIndex, site),
           "invalid definitions replaced the published catalog");
+
+    check(!sites::load(test_data::kSupportedBuild, {}, definitions),
+          "missing schema resource was accepted");
+    check(!sites::load(test_data::kSupportedBuild, schema, {}),
+          "missing definition resource was accepted");
+    check(sites::ready() && sites::count() == test_data::kExpectedSiteCount,
+          "missing resource replaced the published catalog");
 
     check(sites::load(test_data::kSupportedBuild, schema, definitions)
               && sites::count() == test_data::kExpectedSiteCount,

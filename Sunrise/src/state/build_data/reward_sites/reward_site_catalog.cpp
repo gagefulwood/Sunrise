@@ -17,8 +17,8 @@
 namespace sunrise::state::build_data::reward_sites {
 namespace {
 
-/** Version one stores site identity, item progression, and character object transitions. */
-constexpr int kSchemaVersion = 1;
+/** Version two separates supported builds from their optional Reward Site rows. */
+constexpr int kSchemaVersion = 2;
 /** SQLite consumes the complete null-terminated query when the byte count is negative. */
 constexpr int kCompleteSqlText = -1;
 /** Build-filtered queries bind executable timestamp first and image size second. */
@@ -27,6 +27,9 @@ constexpr int kImageTimestampParameter = 1, kImageSizeParameter = 2;
 constexpr std::string_view kRecoveredProvenance = "recovered";
 /** Evidence-backed rows use this constrained SQLite provenance value. */
 constexpr std::string_view kReconstructedProvenance = "reconstructed";
+/** A separate build row distinguishes supported empty coverage from an unknown executable. */
+constexpr char kBuildQuery[] = "SELECT 1 FROM reward_site_builds "
+                               "WHERE image_timestamp=?1 AND image_size=?2";
 /** Site rows sort by wire index so binary lookup stays deterministic. */
 constexpr char kSiteQuery[] = "SELECT site_index,provenance FROM reward_sites "
                               "WHERE image_timestamp=?1 AND image_size=?2 ORDER BY site_index";
@@ -254,12 +257,18 @@ private:
     return found != definitions.end() && found->siteIndex == siteIndex ? &*found : nullptr;
 }
 
+/** @return True when the catalog explicitly supports this executable build. */
+[[nodiscard]] bool supported_build(sqlite3* database, const BuildIdentity& build) noexcept {
+    Statement query(database, kBuildQuery);
+    return query.bind_build(build) && query.step() == SQLITE_ROW && query.step() == SQLITE_DONE;
+}
+
 /**
  * Reads the active build's sites in canonical lookup order.
  * @param database Open catalog database.
  * @param build Active executable identity.
  * @param output Receives ordered definitions; unchanged rows remain on failure.
- * @return False for query failure, invalid provenance, duplicates, or an empty result.
+ * @return False for query failure, invalid provenance, or duplicate site indices.
  */
 [[nodiscard]] bool read_sites(sqlite3* database,
                               const BuildIdentity& build,
@@ -278,7 +287,7 @@ private:
         output.push_back(row);
         result = query.step();
     }
-    return result == SQLITE_DONE && !output.empty();
+    return result == SQLITE_DONE;
 }
 
 /**
@@ -487,7 +496,8 @@ read_character_object_transitions(sqlite3* database,
  */
 [[nodiscard]] bool
 read_catalog(sqlite3* database, const BuildIdentity& build, StagedCatalog& output) noexcept {
-    return schema_valid(database) && read_sites(database, build, output.sites)
+    return schema_valid(database) && supported_build(database, build)
+           && read_sites(database, build, output.sites)
            && read_item_progressions(database, build, output.sites, output.itemProgressions)
            && read_character_object_transitions(
                database, build, output.sites, output.characterObjectTransitions)

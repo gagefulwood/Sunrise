@@ -28,14 +28,24 @@ struct PendingQuestTransition {
     bool prepared{};
 };
 
+/** Result of one event-driven search for a supported completed quest stage. */
+enum class QuestCompletionPreparation : std::uint8_t {
+    noWork,
+    ready,
+    retry,
+};
+
 /**
- * Finds the first owned supported stage completed by the current character state.
+ * Finds the first supported owned stage completed by one expected selected character.
  * Call only from a concrete progression event; this function does not schedule or poll itself.
+ * @param characterSoid Character that produced the progression event.
  * @param mutation Receives one complete Reward Site-backed replacement; cleared when none
  * qualifies.
- * @return True when one owned stage is complete and every typed operation can be prepared.
+ * @return Whether work is ready, absent, or should be retried after a store read failure.
  */
-[[nodiscard]] bool prepare_completed_quest_transition(PendingQuestTransition& mutation) noexcept;
+[[nodiscard]] QuestCompletionPreparation
+prepare_completed_quest_transition(std::uint64_t characterSoid,
+                                   PendingQuestTransition& mutation) noexcept;
 
 /**
  * The caller supplies a decoded installed-content contract, never a client-authored plan.

@@ -143,7 +143,7 @@ bool decode(const QuestTransitionRecord& record, items::QuestTransition& value) 
             static_cast<items::QuestPredicate::Input>(record.objectives[index].input);
         if (input != items::QuestPredicate::Input::family5
             && input != items::QuestPredicate::Input::characterCounter
-            && input != items::QuestPredicate::Input::equipmentPower) {
+            && input != items::QuestPredicate::Input::powerCondition) {
             return false;
         }
         value.objectives[index] = {

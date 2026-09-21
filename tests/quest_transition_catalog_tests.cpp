@@ -40,15 +40,20 @@ void verify_quest_transition_catalog() {
     definitions[1].definitionIndex = 1;
     definitions[1].bucketId = items::kPursuitBucketId;
 
+    items::QuestTransition found{};
+    std::array<items::QuestTransition, 1> snapshot{};
+    std::size_t count = 1;
+    check(items::replace(definitions, std::span<const items::QuestTransition>{})
+              && items::transition_count() == 0 && !items::find_transition(0, found)
+              && items::snapshot_transitions(snapshot, count) && count == 0,
+          "empty transition catalog rejected or populated");
+
     check(items::replace(definitions, std::span<const items::QuestTransition>{&kTransition, 1}),
           "valid transition catalog rejected");
-    items::QuestTransition found{};
     check(items::transition_count() == 1 && items::find_transition(0, found)
               && found == kTransition,
           "published transition not found");
 
-    std::array<items::QuestTransition, 1> snapshot{};
-    std::size_t count = 0;
     check(items::snapshot_transitions(snapshot, count) && count == 1
               && snapshot.front() == kTransition,
           "transition snapshot differs");

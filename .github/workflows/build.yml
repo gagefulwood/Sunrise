@@ -31,6 +31,15 @@ jobs:
           /p:PreferredToolArchitecture=x64
           /verbosity:minimal
 
+      - name: Reward Site catalog tests
+        run: powershell -NoProfile -ExecutionPolicy RemoteSigned -File tests/reward_site_catalog.ps1
+
+      - name: Build-data cache tests
+        run: powershell -NoProfile -ExecutionPolicy RemoteSigned -File tests/build_data_cache.ps1
+
+      - name: Quest transition tests
+        run: powershell -NoProfile -ExecutionPolicy RemoteSigned -File tests/quest_transition.ps1
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

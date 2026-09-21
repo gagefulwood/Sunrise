@@ -96,8 +96,8 @@ constexpr std::int32_t kBooleanObjectiveThreshold = 1;
         || comparisonOperand != kUnusedInstructionOperand) {
         return false;
     }
-    const auto input = valueSlot == state::build_data::items::kEquipmentPowerValueSlot
-                           ? Predicate::Input::equipmentPower
+    const auto input = valueSlot == state::build_data::items::kPowerConditionValueSlot
+                           ? Predicate::Input::powerCondition
                            : Predicate::Input::family5;
     output = {static_cast<std::uint16_t>(valueSlot), literal, input};
     return true;

@@ -107,6 +107,7 @@
     <ClInclude Include="src\middleware\content\packages\tables\quest_transition_reader.h" />
     <ClInclude Include="src\state\build_data\items\quest_transition.h" />
     <ClInclude Include="src\state\runtime\state_quest_transition_runtime.h" />
+    <ClInclude Include="src\server\bap\encrypted\queuez\quest_completion_processing.h" />
     <ClCompile Include="src\state\investment\investment_inventory_store.cpp" />
     <ClCompile Include="src\state\investment\investment_store_boot.cpp" />
     <ClCompile Include="src\state\investment\investment_unlock_store.cpp" />
@@ -930,6 +931,7 @@
     <ClCompile Include="src\server\bap\encrypted\queuez\staging\queuez_family_refresh_staging.cpp" />
     <ClCompile Include="src\server\bap\encrypted\queuez\staging\queuez_character_staging.cpp" />
     <ClCompile Include="src\server\bap\encrypted\queuez\queuez_deferred_push.cpp" />
+    <ClCompile Include="src\server\bap\encrypted\queuez\quest_completion_processing.cpp" />
     <ClCompile Include="src\server\bap\encrypted\queuez\queuez_outcome_staging.cpp" />
     <ClCompile Include="src\server\bap\encrypted\push\queuez\queuez_update_frame.cpp" />
     <ClCompile Include="src\server\bap\encrypted\push\queuez\queuez_account_preflight.cpp" />

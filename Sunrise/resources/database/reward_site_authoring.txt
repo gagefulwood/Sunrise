@@ -1,0 +1,101 @@
+Reward Site authoring for supported quest-stage completion
+
+Scope
+-----
+Sunrise reads build-bound, source-controlled Reward Site definitions at startup.
+The current quest adapter accepts exactly one item-stage replacement and one
+selected-character object-value compare-and-set per completion site. It validates
+the installed source and successor item hashes, owned source instance, objective
+inputs, current stage value, and fresh state before committing both writes in one
+SQLite transaction. A successful commit arms Family-5 and Family-4 refreshes;
+this is not atomic network delivery. This is not an arbitrary Reward Site
+interpreter or complete quest runtime.
+
+The reader retains supported non-final character-scoped quest transitions from
+installed content. It decodes a direct character-objective counter or a
+VALUE/CONSTANT/GE predicate. Other VALUE slots use the persisted Family-5
+override. Slot 462 is mapped to Sunrise's configured equipment-light resolver
+average; that aggregate can include higher-scored equipment from another
+character. The native slot-462 formula and its relationship to the client Power
+display, artifact bonus, and published investment snapshot remain unverified.
+Do not present the current mapping as native-equivalent.
+
+After a successful item acquisition or relevant equipment swap, deferred
+processing checks the event character. It advances at most one supported stage
+per pass and waits for publication before another pass. It does not poll on
+login, produce objective progress, or finish a final stage. A missing site
+remains unavailable; it must not cause guessed inventory or state mutations.
+
+Authoring
+---------
+The schema and definitions live beside this file in reward_site_schema.sql and
+reward_site_definitions.sql. Register a supported executable timestamp and
+image size in reward_site_builds. Add a site row for that exact build with
+provenance 'recovered' only for an authentic row, or 'reconstructed' when all
+required effects have been established from independent evidence. Add the
+typed item and character-object rows with zero-based, gap-free ordinals. Their
+source/successor indices and hashes and character row/values must agree with
+the installed transition. An absent definition is safer than a partial one.
+No quest identity belongs in a C++ special case.
+
+Definitions alone suffice only if the installed decoder retains the transition,
+its predicates already have authoritative server inputs, acquisition or an
+equipment swap supplies the needed completion trigger, and the full effect is
+the supported one-for-one shape. Otherwise extend the specific missing decoder,
+gameplay producer, event route, or typed effect with evidence and separate tests.
+Adding SQL cannot supply missing gameplay progress or an unsupported effect.
+
+The build-86657 Unlimited Power first-stage site 11481 is the sole reconstructed
+definition currently present. Its retained transition decodes item 15284 to
+15285, character-object row 526 from 100 to 200, and slot 462 threshold 899.
+The SQL definition is a bounded reconstruction, not a recovered Bungie row.
+Automated tests use synthetic catalog and Power inputs for transaction and
+scheduling mechanics; they do not prove a second real restoration or native
+Power semantics. New Light item 15037 to 15038 has a retained completion
+reference (site 10737), but no complete authored effect row. Do not add it
+from the stage relationship alone.
+
+Diagnostics
+-----------
+With state debug logging enabled, quest_completion prepare refusals include
+the site, source item index, and a reason: missing_coverage,
+unsupported_shape, unresolved_operations, transition_mismatch,
+unresolved_input, state_mismatch, installed_identity_mismatch,
+ownership_mismatch, replacement_unavailable, replacement_mismatch, or
+stale_state. An ordinarily unmet threshold is silent. A server warning marks
+a failed or refused transaction commit; it does not alone distinguish a stale
+preview from a store write failure. Inspect the reason and the current state
+before changing content. Do not repeatedly test unchanged gameplay to obtain
+the same refusal.
+
+Verification
+------------
+From the repository root on Windows with Visual Studio C++ tools:
+
+  powershell -NoProfile -ExecutionPolicy RemoteSigned -File tests/reward_site_catalog.ps1
+  powershell -NoProfile -ExecutionPolicy RemoteSigned -File tests/build_data_cache.ps1
+  powershell -NoProfile -ExecutionPolicy RemoteSigned -File tests/quest_transition.ps1
+  msbuild Sunrise.sln /m /p:Configuration=Release /p:Platform=x64 /p:PreferredToolArchitecture=x64
+
+The optional -RetainedDirectory argument to tests/quest_transition.ps1 reads
+private installed-content fixtures; the public test run does not execute that
+retained-content check. Keep those assets outside this repository. The GitHub
+workflow runs the public scripts only; it does not prove the retained-content
+or client behavior.
+Run the repository .clang-format and .clang-tidy checks on edited code and
+git diff --check separately. Rebuild the DLL after editing embedded SQL;
+definitions are not hot-loaded.
+
+Evidence gaps
+-------------
+For slot 462, the smallest next investigation is a build-matched native trace
+of its VALUE producer and consumer, distinguishing selected equipment, other
+character maxima, artifact bonus, published override, and displayed Power.
+Then test the chosen mapping with two characters and an artifact contrast.
+Until that is done, do not choose a different formula merely by intuition.
+
+For site 10737, obtain its complete build-matched authored row and any nested
+operations, or a controlled native transaction/state trace that establishes
+all grants, unlocks, publications, and stage changes. Only then add a second
+definition and test it through retained decoding, the real catalog, persistence,
+and production event routing. A second synthetic fixture is not that proof.

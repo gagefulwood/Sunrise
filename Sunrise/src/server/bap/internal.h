@@ -339,6 +339,13 @@ struct WorldRewardRequest {
 /** The changed character projections still owed after their source state commits. */
 enum class CharacterRefreshScope : std::uint8_t { none, records, recordsAndRoster };
 
+/** One character-bound supported-quest completion obligation. */
+struct QuestCompletionWork {
+    std::uint64_t characterSoid{};
+    std::uint8_t retryCount{};
+    bool armed{};
+};
+
 /** Mutable transport state owned by one BAP connection. */
 struct Session {
     std::uint64_t activityAdvertisementHostGeneration{};
@@ -353,8 +360,7 @@ struct Session {
     bool authenticated{};
     /** Owes a Family-5 replacement after selection, artifact, or quest state changes. */
     bool investmentRefreshArmed{};
-    /** One committed gear change owes a bounded supported-quest completion attempt. */
-    bool questCompletionArmed{};
+    QuestCompletionWork questCompletion{};
     bool artifactFamily4RefreshArmed{};
     std::uint64_t artifactFamily4RefreshDueTick{};
     state::ArtifactResetResult artifactResetRefresh{};

@@ -1,6 +1,14 @@
 PRAGMA foreign_keys = ON;
--- Schema version 1 stores site identity and the first two supported operation families.
-PRAGMA user_version = 1;
+-- Schema version 2 separates supported executable builds from authored Reward Sites.
+PRAGMA user_version = 2;
+
+-- A registered build may intentionally have no authored Reward Site definitions.
+CREATE TABLE reward_site_builds (
+    image_timestamp INTEGER NOT NULL
+        CHECK (image_timestamp >= 1 AND image_timestamp < (1 << 32)),
+    image_size INTEGER NOT NULL CHECK (image_size >= 1 AND image_size < (1 << 32)),
+    PRIMARY KEY (image_timestamp, image_size)
+) STRICT;
 
 -- Catalog rows use nonzero unsigned 32-bit build identities.
 -- Reward Site indices exclude the unsigned 16-bit absent-reference sentinel.
@@ -11,7 +19,9 @@ CREATE TABLE reward_sites (
     image_size INTEGER NOT NULL CHECK (image_size >= 1 AND image_size < (1 << 32)),
     site_index INTEGER NOT NULL CHECK (site_index >= 0 AND site_index < ((1 << 16) - 1)),
     provenance TEXT NOT NULL CHECK (provenance IN ('recovered', 'reconstructed')),
-    PRIMARY KEY (image_timestamp, image_size, site_index)
+    PRIMARY KEY (image_timestamp, image_size, site_index),
+    FOREIGN KEY (image_timestamp, image_size)
+        REFERENCES reward_site_builds(image_timestamp, image_size)
 ) STRICT;
 
 -- Sunrise's 16-bit operation count supports zero-based ordinals 0 through 65534.

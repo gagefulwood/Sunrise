@@ -1,4 +1,11 @@
 -- Build 86657 PE identity; definitions never cross executable builds.
+-- See reward_site_authoring.txt before adding a site or interpreting these reconstructed rows.
+INSERT INTO reward_site_builds (image_timestamp, image_size)
+VALUES (
+    1598231435,   -- Build 86657 PE timestamp.
+    145091072     -- Build 86657 image size.
+);
+
 -- Site 11481 advances the first supported Unlimited Power stage.
 INSERT INTO reward_sites (image_timestamp, image_size, site_index, provenance)
 VALUES (

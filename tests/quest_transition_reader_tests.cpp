@@ -24,9 +24,9 @@ constexpr std::uint16_t kSuccessorItem = 11;
 constexpr std::size_t kItemCount = 20;
 /** The synthetic quest set uses one character-mapped value slot. */
 constexpr std::uint16_t kSetValueSlot = 7;
-/** The synthetic objective reads the native selected-character equipment-Power slot. */
+/** The synthetic objective reads the Power-related slot whose native formula is unresolved. */
 constexpr std::uint16_t kObjectiveValueSlot =
-    sunrise::state::build_data::items::kEquipmentPowerValueSlot;
+    sunrise::state::build_data::items::kPowerConditionValueSlot;
 /** The synthetic objective table uses row three. */
 constexpr std::uint16_t kObjectiveIndex = 3;
 /** The supported synthetic expression compares against this signed literal. */
@@ -318,7 +318,7 @@ void verify_generated() {
     expected.nextValue = 2 * kStepValueSpacing;
     expected.valueRow = 0;
     expected.objectives[0] = QuestPredicate{
-        kObjectiveValueSlot, kObjectiveMinimum, QuestPredicate::Input::equipmentPower};
+        kObjectiveValueSlot, kObjectiveMinimum, QuestPredicate::Input::powerCondition};
     expected.objectiveCount = 1;
     expected.completionEffect = kCompletionEffect;
     check(read(value) == expected, "decoded transition differs");
@@ -549,7 +549,7 @@ void verify_retained(const char* retainedDirectory) {
     expected.nextValue = 2 * kStepValueSpacing;
     expected.valueRow = kRetainedQuestRow;
     expected.objectives[0] = {
-        kObjectiveValueSlot, kObjectiveMinimum, QuestPredicate::Input::equipmentPower};
+        kObjectiveValueSlot, kObjectiveMinimum, QuestPredicate::Input::powerCondition};
     expected.objectiveCount = 1;
     expected.completionEffect = kRetainedFirstEffect;
     check(output == expected, "retained first-stage transition differs");

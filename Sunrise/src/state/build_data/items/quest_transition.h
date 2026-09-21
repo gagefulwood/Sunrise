@@ -20,8 +20,8 @@ inline constexpr std::size_t kQuestItemIndexCapacity = kUnavailableQuestItemInde
 inline constexpr std::uint16_t kQuestValueSlotLimit = kUnlockValueSlotLimit;
 /** Transition evaluation accepts at most sixteen objective references. */
 inline constexpr std::size_t kQuestObjectiveCapacity = 16;
-/** Native condition slot 462 reads the selected character's equipped-item Power. */
-inline constexpr std::uint16_t kEquipmentPowerValueSlot = 462;
+/** Native slot 462 is Power-related; its exact aggregation remains unresolved. */
+inline constexpr std::uint16_t kPowerConditionValueSlot = 462;
 
 /** One supported objective requires an explicit value slot to reach a signed minimum. */
 struct QuestPredicate {
@@ -31,8 +31,8 @@ struct QuestPredicate {
         family5,
         /** Character-owned objective counter with the same native slot. */
         characterCounter,
-        /** Selected character's equipped-item Power average. */
-        equipmentPower,
+        /** Power condition currently supplied by Sunrise's configured equipment-light resolver. */
+        powerCondition,
     };
     std::uint16_t valueSlot{};
     std::int32_t minimumValue{};
@@ -77,7 +77,7 @@ struct QuestTransition {
              && (predicate.valueSlot >= kQuestValueSlotLimit
                  || (predicate.input != QuestPredicate::Input::family5
                      && predicate.input != QuestPredicate::Input::characterCounter
-                     && predicate.input != QuestPredicate::Input::equipmentPower)))
+                     && predicate.input != QuestPredicate::Input::powerCondition)))
             || (index >= quest.objectiveCount && predicate != QuestPredicate{})) {
             return false;
         }
