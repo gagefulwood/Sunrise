@@ -51,6 +51,8 @@ constexpr std::uint16_t kRewardSiteIndex = 11481;
 constexpr std::uint16_t kSecondRewardSiteIndex = 11482;
 /** Test threshold crosses the 16-bit boundary to detect narrowed constants. */
 constexpr std::int32_t kMinimumValue = 70000;
+/** Two test credits must be applied before the fixture stage completes. */
+constexpr std::int32_t kEventThreshold = 2;
 /** Unlimited Power's first retained predicate compares slot 462 against 899. */
 constexpr std::int32_t kPowerConditionThreshold = 899;
 /** Fixture capacity is adjustable to test the State boundary's resolver rejection. */
@@ -65,6 +67,8 @@ bool g_rewardSiteAvailable = true;
 bool g_unsupportedSiteShape = false;
 /** Tests can reject an installed-item identity mismatch at Reward Site resolution. */
 bool g_rewardItemIdentitiesValid = true;
+/** Test lookup can bind the first stage to a character-owned event counter. */
+bool g_countedEventInput = false;
 /** Counts production peer-publication requests without constructing the global session table. */
 std::size_t g_peerResyncCount = 0;
 /** Captures one structured refusal from the production logger call. */
@@ -107,6 +111,14 @@ items::QuestTransition contract() {
     result.objectiveCount = 1;
     result.objectives[0] = {kValueSlot, kMinimumValue};
     result.completionEffect = kRewardSiteIndex;
+    return result;
+}
+
+/** @return The first fixture stage bound to character-owned event progress. */
+items::QuestTransition counted_event_contract() {
+    auto result = contract();
+    result.objectives[0] = {
+        kValueSlot, kEventThreshold, items::QuestPredicate::Input::characterCounter};
     return result;
 }
 
@@ -169,6 +181,7 @@ void reset_fixture() {
     g_rewardSiteAvailable = true;
     g_unsupportedSiteShape = false;
     g_rewardItemIdentitiesValid = true;
+    g_countedEventInput = false;
     g_peerResyncCount = 0;
     g_lastLog.clear();
 }
@@ -684,6 +697,59 @@ void verify_deferred_completion_processing() {
     std::puts("PASS: character-bound bounded deferred quest completion orchestration");
 }
 
+/** Test-only credit reaches deferred completion; no gameplay producer is exercised. */
+void verify_counted_event_completion() {
+    namespace processing = sunrise::server::bap::encrypted::queuez;
+
+    reset_fixture();
+    g_countedEventInput = true;
+    sunrise::server::bap::Session session{};
+    session.queuez.family4Active = true;
+    for (std::int32_t event = 1; event <= kEventThreshold; ++event) {
+        {
+            store::Transaction credit;
+            std::optional<std::int32_t> previous;
+            check(credit.ready()
+                      && store::read_character_objective(kCharacter, kValueSlot, previous)
+                      && previous.value_or(0) == event - 1
+                      && store::write_character_objective(kCharacter, kValueSlot, event)
+                      && credit.commit(),
+                  "credit one selected-character test event");
+        }
+        processing::arm_quest_completion(session, kCharacter);
+        const auto result = processing::process_quest_completion(session);
+        if (event < kEventThreshold) {
+            check(result == processing::QuestCompletionResult::noWork,
+                  "incomplete event progress advanced the stage");
+            check_unchanged();
+        } else {
+            check(result == processing::QuestCompletionResult::advanced
+                      && session.investmentRefreshArmed && session.accountResyncArmed
+                      && g_peerResyncCount == 1,
+                  "completed event progress did not publish the Reward Site transition");
+        }
+    }
+
+    state::AccountState account{};
+    std::int32_t stage = 0;
+    std::optional<std::int32_t> progress;
+    check(store::read_account(account)
+              && account.characters[0].inventory.values[0].definitionHash == kSuccessorHash
+              && account.characters[0].inventory.values[0].instanceSoid != kSource
+              && store::read_unlock(store::Bank::characterObjectValues, kQuestRow, stage)
+              && stage == kNextValue
+              && store::read_character_objective(kCharacter, kValueSlot, progress)
+              && progress == kEventThreshold,
+          "event completion did not persist its item, stage and counter");
+    session.investmentRefreshArmed = false;
+    session.accountResyncArmed = false;
+    processing::arm_quest_completion(session, kCharacter);
+    check(processing::process_quest_completion(session) == processing::QuestCompletionResult::noWork
+              && g_peerResyncCount == 1,
+          "replayed completion event duplicated the Reward Site transition");
+    std::puts("PASS: credited test events use deferred Reward Site completion once");
+}
+
 /** Verifies current slot-462 wiring without claiming that it is the native Power formula. */
 void verify_power_condition_input() {
     reset_fixture();
@@ -906,7 +972,7 @@ bool find_quest_transition(std::uint16_t sourceItemIndex,
                            items::QuestTransition& transition) noexcept {
     transition = {};
     if (sourceItemIndex == kSourceItemIndex) {
-        transition = contract();
+        transition = g_countedEventInput ? counted_event_contract() : contract();
         return true;
     }
     if (sourceItemIndex == kSecondSourceItemIndex) {
@@ -1077,6 +1143,7 @@ int main(int argc, char** argv) {
     verify_runtime();
     verify_event_preparation();
     verify_deferred_completion_processing();
+    verify_counted_event_completion();
     verify_power_condition_input();
     verify_character_objectives();
     verify_objective_publication();
