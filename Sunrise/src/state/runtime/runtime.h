@@ -8,8 +8,11 @@
 #include "../build_data/items/quest_initialization.h"
 #include "../build_data/records/definition.h"
 #include "../build_data/rewards/definition.h"
-#include "../unlocks/definition.h"
 #include "state.h"
+
+namespace sunrise::state::unlocks {
+struct Table;
+}
 
 namespace sunrise::state::account::settings {
 
