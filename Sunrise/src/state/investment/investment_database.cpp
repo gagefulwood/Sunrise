@@ -132,8 +132,8 @@ bool open(std::string_view path,
                 && !characterStarter.empty() && execute(starterText.c_str())
                 && transaction.commit();
     } else if (ready) {
-        // Version 3 adds the appearance header and the starter tables. Version 2 added account
-        // preferences and per-item seen state.
+        // Version 3 adds the appearance header, starter tables, and character objective counters.
+        // Version 2 added account preferences and per-item seen state.
         constexpr int kSchemaVersion = 3;
         constexpr int kApplicationId = 1397902921;
         int application = 0;
@@ -166,8 +166,14 @@ bool open(std::string_view path,
                            "000000000000') CHECK (length(appearance_header) = 36);"
                            "ALTER TABLE characters ADD COLUMN appearance_header_valid INTEGER "
                            "NOT NULL DEFAULT 0 CHECK (appearance_header_valid IN (0, 1));")
-                && execute(starterText.c_str()) && execute("PRAGMA user_version=3")
-                && transaction.commit();
+                && execute(starterText.c_str())
+                && execute("CREATE TABLE character_objective_values ("
+                           "character_soid INTEGER NOT NULL REFERENCES characters(soid) "
+                           "DEFERRABLE INITIALLY DEFERRED,"
+                           "slot INTEGER NOT NULL CHECK (slot BETWEEN 0 AND 32767),"
+                           "value INTEGER NOT NULL CHECK (value BETWEEN 0 AND 2147483647),"
+                           "PRIMARY KEY (character_soid,slot)) STRICT;")
+                && execute("PRAGMA user_version=3") && transaction.commit();
     }
     if (!ready) {
         shutdown();
