@@ -8,8 +8,8 @@ namespace sunrise::client::content::vendors {
 /** Tag of the installed vendor index blob, which names every vendor definition. */
 inline constexpr std::uint32_t kIndexRootTag = 0x8131931DU;
 
-/** Investment-root slot holding nested item reward lists used by faction packages. */
-inline constexpr std::size_t kRewardListTableSlot = 176;
+/** Build-86657 investment-root slot holding nested faction reward lists. */
+inline constexpr std::size_t kRewardListTableSlot = 88;
 /** Native reward-list table row class. */
 inline constexpr std::uint32_t kRewardListRowClass = 0x8080748CU;
 /** Native reward-list table row size. */
