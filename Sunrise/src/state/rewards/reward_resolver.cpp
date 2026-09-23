@@ -180,6 +180,11 @@ struct Resolver {
                 && entry.bucketHash != bucket)) {
             return true;
         }
+        if (entry.itemIndex == definitions::kAbsent && entry.poolIndex == definitions::kAbsent
+            && entry.rewardSiteIndex != definitions::kAbsent) {
+            // The installed build has no Reward Site rows; this entry selects no inventory item.
+            return true;
+        }
         if (selection == Selection::equipment && entry.poolIndex == definitions::kAbsent) {
             build_data::items::details::Definition item{};
             if (!build_data::find_configured_item_detail(entry.itemIndex, item)

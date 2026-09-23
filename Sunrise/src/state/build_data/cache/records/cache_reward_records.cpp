@@ -20,6 +20,7 @@ bool encode(const rewards::Entry& value, RewardEntryRecord& record) noexcept {
     record = {};
     record.itemIndex = value.itemIndex;
     record.poolIndex = value.poolIndex;
+    record.rewardSiteIndex = value.rewardSiteIndex;
     record.quantity = value.quantity;
     record.categoryHash = value.categoryHash;
     record.bucketHash = value.bucketHash;
@@ -34,6 +35,7 @@ bool decode(const RewardEntryRecord& record, rewards::Entry& value) noexcept {
     value = {};
     value.itemIndex = record.itemIndex;
     value.poolIndex = record.poolIndex;
+    value.rewardSiteIndex = record.rewardSiteIndex;
     value.quantity = record.quantity;
     value.categoryHash = record.categoryHash;
     value.bucketHash = record.bucketHash;

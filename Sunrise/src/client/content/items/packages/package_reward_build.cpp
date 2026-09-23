@@ -20,6 +20,10 @@ namespace domain = state::build_data::rewards;
 
 /** Investment-root slots identify reward pools and unlock-slot bindings. */
 constexpr std::size_t kPoolSlot = 88;
+/** The Reward Site handle is at investment-root +0x548. */
+constexpr std::size_t kSiteTableHandleOffset = 0x548;
+/** The supported content has no Reward Site table and marks its handle absent. */
+constexpr std::uint32_t kAbsentSiteTableHandle = 0xFFFFFFFFU;
 constexpr std::size_t kExpressionSlot = 109;
 constexpr std::size_t kFlagSlot = 112;
 constexpr std::size_t kValueSlot = 114;
@@ -43,8 +47,8 @@ constexpr std::size_t kSocketStride = 12, kSelectionStride = 12;
 constexpr std::size_t kWrapperField = 0x58;
 constexpr std::size_t kAcquiredFlagField = 0xDA;
 
-/** Byte offsets inside the serialized reward rows. */
-constexpr std::size_t kEntryQuantityOffset = 4, kEntryPoolOffset = 8;
+/** Serialized reward offsets; entry +10 is a Reward Site reference, not a nested pool. */
+constexpr std::size_t kEntryQuantityOffset = 4, kEntryPoolOffset = 8, kEntrySiteOffset = 10;
 constexpr std::size_t kEntryCategoryOffset = 20, kEntryWeightOffset = 24;
 constexpr std::size_t kEntryBucketOffset = 28, kEntryConditionOffset = 32;
 constexpr std::size_t kEntryModifiersOffset = 48, kEntrySocketsOffset = 64;
@@ -88,6 +92,7 @@ bool read_reward_entry(std::span<const std::byte> blob,
     return tables::read(blob, at, entry.itemIndex)
            && tables::read(blob, at + kEntryQuantityOffset, entry.quantity)
            && tables::read(blob, at + kEntryPoolOffset, entry.poolIndex)
+           && tables::read(blob, at + kEntrySiteOffset, entry.rewardSiteIndex)
            && tables::read(blob, at + kEntryCategoryOffset, entry.categoryHash)
            && tables::read(blob, at + kEntryWeightOffset, entry.weight)
            && tables::read(blob, at + kEntryBucketOffset, entry.bucketHash)
@@ -441,6 +446,15 @@ bool RewardBuild::load(const reader::Source& source,
             ++skipped;
         }
         if (!append(pools, pool, domain::kPoolCapacity)) {
+            return false;
+        }
+    }
+    if (std::any_of(entries.begin(), entries.end(), [](const domain::Entry& entry) {
+            return entry.rewardSiteIndex != domain::kAbsent;
+        })) {
+        std::uint32_t siteHandle = 0;
+        if (!tables::read(root, kSiteTableHandleOffset, siteHandle)
+            || siteHandle != kAbsentSiteTableHandle) {
             return false;
         }
     }

@@ -69,6 +69,8 @@ struct Modifier {
 struct Entry {
     std::uint16_t itemIndex{kAbsent};
     std::uint16_t poolIndex{kAbsent};
+    /** Native entry +10 names a Reward Site, not an item or nested pool. */
+    std::uint16_t rewardSiteIndex{kAbsent};
     std::uint32_t quantity{};
     std::uint32_t categoryHash{};
     std::uint32_t bucketHash{};
