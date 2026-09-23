@@ -143,7 +143,6 @@ struct PendingItemAcquisition {
     bool directGrant{};
     build_data::items::QuestInitialization questInitialization{};
     std::int32_t previousQuestValue{};
-    VendorRewardClaim vendorReward{};
     bool prepared{};
 
     /**
@@ -259,6 +258,7 @@ struct PendingRecordRewardGrant {
     std::size_t beforeProfileItemCount{};
     std::size_t afterProfileItemCount{};
     std::size_t rewardCount{};
+    VendorRewardClaim vendorReward{};
     bool prepared{};
 };
 

@@ -342,6 +342,7 @@ bool prepare_item_reward(std::uint16_t itemIndex,
 
 bool preview_reward_unlocks(const PendingRecordRewardGrant& mutation,
                             unlocks::Table& after) noexcept {
+    const std::lock_guard lock(investment::store::g_mutex);
     if (!mutation.prepared || mutation.rewardCount > mutation.rewards.size()
         || !investment::store::read_unlocks(after, static_cast<int>(mutation.characterIndex))) {
         return false;
@@ -361,6 +362,15 @@ bool preview_reward_unlocks(const PendingRecordRewardGrant& mutation,
         if (flag != build_data::rewards::kAbsent) {
             after.accountFlags[flag] = unlocks::kFlagSet;
         }
+    }
+    const auto& claim = mutation.vendorReward;
+    if (claim.beforeCredits != 0) {
+        if (claim.rewardValueRow >= after.characterObjectValues.size()
+            || !vendor_reward_current(claim)
+            || after.characterObjectValues[claim.rewardValueRow] != claim.beforeCredits) {
+            return false;
+        }
+        after.characterObjectValues[claim.rewardValueRow] = claim.beforeCredits - 1;
     }
     return true;
 }
@@ -745,6 +755,11 @@ bool commit_record_reward(PendingRecordRewardGrant& mutation) noexcept {
                 ready = investment::store::write_unlock(
                     investment::store::Bank::accountFlags, flag, unlocks::kFlagSet);
             }
+        }
+        if (ready && mutation.vendorReward.beforeCredits > 0) {
+            ready = investment::store::write_unlock(investment::store::Bank::characterObjectValues,
+                                                    mutation.vendorReward.rewardValueRow,
+                                                    mutation.vendorReward.beforeCredits - 1);
         }
         ready = ready && transaction.commit();
     }
