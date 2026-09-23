@@ -8,6 +8,45 @@ namespace sunrise::client::content::vendors {
 /** Tag of the installed vendor index blob, which names every vendor definition. */
 inline constexpr std::uint32_t kIndexRootTag = 0x8131931DU;
 
+/** Investment-root slot holding nested item reward lists used by faction packages. */
+inline constexpr std::size_t kRewardListTableSlot = 176;
+/** Native reward-list table row class. */
+inline constexpr std::uint32_t kRewardListRowClass = 0x8080748CU;
+/** Native reward-list table row size. */
+inline constexpr std::size_t kRewardListRowStride = 24;
+/** Native reward-list entry class. */
+inline constexpr std::uint32_t kRewardEntryClass = 0x8080748EU;
+/** Native reward-list entry size. */
+inline constexpr std::size_t kRewardEntryStride = 80;
+/** Item-definition index in one reward entry. */
+inline constexpr std::size_t kRewardEntryItemOffset = 0;
+/** Direct child-list selector in one reward entry. */
+inline constexpr std::size_t kRewardEntryChildOffset = 8;
+/** Separate selector with an unresolved target space; do not treat it as a child list. */
+inline constexpr std::size_t kRewardEntryOtherSelectorOffset = 10;
+/** Expression array descriptor in one reward entry. */
+inline constexpr std::size_t kRewardEntryConditionOffset = 32;
+/** All-one item/list selectors do not name an installed row. */
+inline constexpr std::uint16_t kNoRewardSelector = 0xFFFFU;
+/** Self-relative reward-sack pointer in an item definition. */
+inline constexpr std::size_t kItemRewardSackPointer = 0x58;
+/** Native marker immediately before a resolved sack block. */
+inline constexpr std::uint32_t kRewardSackClass = 0x808077CCU;
+/** Native reward-list selector at the start of a sack block. */
+inline constexpr std::size_t kRewardSackListOffset = 0;
+/** Sack-entry array descriptor in the resolved sack block. */
+inline constexpr std::size_t kRewardSackEntriesOffset = 8;
+/** Native sack-entry class. */
+inline constexpr std::uint32_t kRewardSackEntryClass = 0x808077CFU;
+/** Native sack-entry row size. */
+inline constexpr std::size_t kRewardSackEntryStride = 12;
+/** Hunter armour leaves use FLAG[239] in the installed reward list. */
+inline constexpr std::uint32_t kHunterArmourFlag = 239;
+/** Titan armour leaves use FLAG[264] in the installed reward list. */
+inline constexpr std::uint32_t kTitanArmourFlag = 264;
+/** Warlock armour leaves use FLAG[271] in the installed reward list. */
+inline constexpr std::uint32_t kWarlockArmourFlag = 271;
+
 /** A vendor definition holds its installed array descriptor here. */
 inline constexpr std::size_t kInstalledArrayDescriptor = 32;
 /** A vendor definition holds its sale array descriptor here. */
