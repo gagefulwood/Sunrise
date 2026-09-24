@@ -73,8 +73,6 @@ constexpr std::array<std::uint32_t, 2> kFixtureWeapons{991314988U, 720351795U};
 constexpr std::size_t kFixtureGearBucketCapacity = 10;
 /** The synthetic character bucket holds a resolved instanced reward. */
 constexpr std::uint8_t kRewardBucket = 2;
-/** Native empty bucket tag inherits the pool's bucket constraint. */
-constexpr std::uint32_t kInheritedRewardBucket = 0x811C9DC5U;
 /** Native faction packages select gear, a Reward Site and optional shaders by category. */
 constexpr std::uint32_t kFactionGearCategory = 1172844112U;
 constexpr std::uint32_t kFactionSiteCategory = 2590539385U;
@@ -94,9 +92,11 @@ void check(bool passed, const char* label);
  * Seeds an item reward with optional site-only and later item categories.
  * @param opensOnAcquisition Whether the fixture wrapper expands at acquisition.
  * @param secondSite Present to add a second category; kAbsent makes it malformed.
+ * @param supplementalMissing Whether the supplemental definition bank is absent.
  */
 void seed_reward_catalog(bool opensOnAcquisition = true,
-                         std::optional<std::uint16_t> secondSite = std::nullopt) {
+                         std::optional<std::uint16_t> secondSite = std::nullopt,
+                         bool supplementalMissing = true) {
     namespace rewards = state::build_data::rewards;
     const auto entryCount = secondSite.has_value() ? 3U : 1U;
     std::array<rewards::Pool, 1> pools{{{g_packageHash, {0, entryCount}}}};
@@ -104,17 +104,16 @@ void seed_reward_catalog(bool opensOnAcquisition = true,
     entries[0].itemIndex = kGearIndexBase;
     entries[0].quantity = 1;
     entries[0].categoryHash = kFactionGearCategory;
-    entries[0].bucketHash = kInheritedRewardBucket;
     entries[0].weight = 1;
-    entries[1].rewardSiteIndex = secondSite.value_or(rewards::kAbsent);
+    entries[1].supplementalIndex = secondSite.value_or(rewards::kAbsent);
+    entries[1].supplementalMissing =
+        secondSite.has_value() && secondSite.value() != rewards::kAbsent && supplementalMissing;
     entries[1].quantity = 1;
     entries[1].categoryHash = kFactionSiteCategory;
-    entries[1].bucketHash = kInheritedRewardBucket;
     entries[1].weight = 1;
     entries[2].itemIndex = kGearIndexBase + 1;
     entries[2].quantity = 1;
     entries[2].categoryHash = kFactionShaderCategory;
-    entries[2].bucketHash = kInheritedRewardBucket;
     entries[2].weight = 1;
     std::array<rewards::Item, kGearIndexBase + 2> items{};
     items[kRewardIndex].definitionHash = g_packageHash;
@@ -495,11 +494,15 @@ void verify_rank_rewards() {
           "uneven thresholds award every crossed credit, no items");
 }
 
-/** Configures a disposable eligible Zavala claim without changing player saves. */
-void reset_claim(std::optional<std::uint16_t> secondSite = std::nullopt) {
+/** Configures a disposable eligible Zavala claim without changing player saves.
+ * @param secondSite Present to add a second category; kAbsent makes it malformed.
+ * @param supplementalMissing Whether the supplemental definition bank is absent.
+ */
+void reset_claim(std::optional<std::uint16_t> secondSite = std::nullopt,
+                 bool supplementalMissing = true) {
     reset();
     g_vendorHash = kZavala;
-    seed_reward_catalog(true, secondSite);
+    seed_reward_catalog(true, secondSite, supplementalMissing);
     state::Family5State family{};
     family.flagCount = 1;
     family.flags[0] = {kPackageFlag, state::unlocks::kFlagSet};
@@ -516,12 +519,13 @@ void verify_claims() {
     state::PendingRecordRewardGrant grant{};
     namespace cache = state::build_data::cache::records;
     state::build_data::rewards::Entry source{};
-    source.rewardSiteIndex = kFactionRewardSite;
+    source.supplementalIndex = kFactionRewardSite;
+    source.supplementalMissing = true;
     cache::RewardEntryRecord stored{};
     state::build_data::rewards::Entry loaded{};
     check(cache::encode(source, stored) && cache::decode(stored, loaded)
-              && loaded.rewardSiteIndex == kFactionRewardSite,
-          "Reward Site reference survives build-data cache");
+              && loaded.supplementalIndex == kFactionRewardSite && loaded.supplementalMissing,
+          "supplemental reward reference survives build-data cache");
     reset_claim(kFactionRewardSite);
     check(state::prepare_vendor_reward_sale(kVendor, kPackageSale, grant) == Disposition::prepared
               && grant.rewardCount == 2
@@ -530,7 +534,11 @@ void verify_claims() {
               && credits(state::kVanguardRewardValueRow) == 2 && state::commit_record_reward(grant)
               && credits(state::kVanguardRewardValueRow) == 1
               && store::account().characters[0].inventory.count == 2,
-          "absent site row does not block item reward and credit commit");
+          "absent supplemental bank does not block item reward and credit commit");
+    reset_claim(kFactionRewardSite, false);
+    check(state::prepare_vendor_reward_sale(kVendor, kPackageSale, grant) == Disposition::refused
+              && credits(state::kVanguardRewardValueRow) == 2,
+          "present unsupported supplemental reward refuses without credit debit");
     reset_claim(state::build_data::rewards::kAbsent);
     check(state::prepare_vendor_reward_sale(kVendor, kPackageSale, grant) == Disposition::refused
               && credits(state::kVanguardRewardValueRow) == 2,

@@ -20,10 +20,10 @@ bool encode(const rewards::Entry& value, RewardEntryRecord& record) noexcept {
     record = {};
     record.itemIndex = value.itemIndex;
     record.poolIndex = value.poolIndex;
-    record.rewardSiteIndex = value.rewardSiteIndex;
+    record.supplementalIndex = value.supplementalIndex;
+    record.supplementalMissing = static_cast<std::uint8_t>(value.supplementalMissing);
     record.quantity = value.quantity;
     record.categoryHash = value.categoryHash;
-    record.bucketHash = value.bucketHash;
     record.weight = value.weight;
     record.condition = {value.condition.first, value.condition.count};
     record.modifiers = {value.modifiers.first, value.modifiers.count};
@@ -33,12 +33,16 @@ bool encode(const rewards::Entry& value, RewardEntryRecord& record) noexcept {
 
 bool decode(const RewardEntryRecord& record, rewards::Entry& value) noexcept {
     value = {};
+    if (record.supplementalMissing > 1
+        || (record.supplementalMissing != 0 && record.supplementalIndex == rewards::kAbsent)) {
+        return false;
+    }
     value.itemIndex = record.itemIndex;
     value.poolIndex = record.poolIndex;
-    value.rewardSiteIndex = record.rewardSiteIndex;
+    value.supplementalIndex = record.supplementalIndex;
+    value.supplementalMissing = record.supplementalMissing != 0;
     value.quantity = record.quantity;
     value.categoryHash = record.categoryHash;
-    value.bucketHash = record.bucketHash;
     value.weight = record.weight;
     value.condition = {record.condition.first, record.condition.count};
     value.modifiers = {record.modifiers.first, record.modifiers.count};
