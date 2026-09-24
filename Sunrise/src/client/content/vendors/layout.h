@@ -28,6 +28,12 @@ inline constexpr std::size_t kInstalledArrayDescriptor = 32;
 inline constexpr std::size_t kSaleArrayDescriptor = 48;
 /** A vendor definition holds its unnamed third array descriptor here. */
 inline constexpr std::size_t kThirdArrayDescriptor = 80;
+/** Element class of an interaction row in the third vendor array. */
+inline constexpr std::uint32_t kInteractionRowClass = 0x80807857U;
+/** Interaction row +8 holds its direct availability expression. */
+inline constexpr std::size_t kInteractionConditionField = 8;
+/** Interaction row +56 names the vendor category it presents. */
+inline constexpr std::size_t kInteractionCategoryOffset = 56;
 /** Raw reset interval. Its unit, epoch and scope are open, so it is stored unconverted. */
 inline constexpr std::size_t kResetIntervalOffset = 20;
 /** Raw reset phase, paired with the interval. */
@@ -35,6 +41,8 @@ inline constexpr std::size_t kResetPhaseOffset = 24;
 
 /** Sale row price-override array descriptor, which is what the row charges. */
 inline constexpr std::size_t kSaleCostArrayDescriptor = 32;
+/** Sale row +8 carries admission programs; +120 carries selection programs. */
+inline constexpr std::size_t kSaleAdmissionField = 8, kSaleSelectionField = 120;
 /** Cost item-definition index inside one price-override row. */
 inline constexpr std::size_t kSaleCostItemIndexOffset = 0;
 /** Units the price-override row charges. */
