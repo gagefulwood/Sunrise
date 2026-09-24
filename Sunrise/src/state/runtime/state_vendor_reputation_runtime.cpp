@@ -2,9 +2,10 @@
 
 #include <algorithm>
 #include <limits>
+#include <span>
 
+#include "../../middleware/crypto/random_bytes.h"
 #include "../build_data/progressions/progression_catalog.h"
-#include "../build_data/rewards/reward_catalog.h"
 #include "../build_data/vendors/reconstructed_rank_claim_links.h"
 #include "../build_data/vendors/reputation_sale_catalog.h"
 #include "../build_data/vendors/vendor_catalog.h"
@@ -42,19 +43,25 @@ const build_data::vendors::GateInput* gate_input(const GateValues& values,
 /**
  * Reads a native flag slot, preferring a Family-5 override.
  * @param context Gate values shared by this evaluation.
- * @param slot Native flag slot.
- * @param logical Receives the logical byte on success.
+ * @param instruction Bound native flag slot.
+ * @param set Receives whether the logical byte is set.
  * @return False when the slot has no supported source.
  */
-bool gate_flag(void* context, std::uint16_t slot, std::uint8_t& logical) noexcept {
+bool gate_flag(const void* context, const unlocks::Instruction& instruction, bool& set) noexcept {
     const auto& values = *static_cast<const GateValues*>(context);
+    if (instruction.operand > (std::numeric_limits<std::uint16_t>::max)()) {
+        return false;
+    }
+    const auto slot = static_cast<std::uint16_t>(instruction.operand);
     const auto* input = gate_input(values, build_data::vendors::Opcode::flag, slot);
     if (input == nullptr) {
         return false;
     }
+    std::uint8_t logical = 0;
     for (std::size_t index = 0; index < values.family.flagCount; ++index) {
         if (values.family.flags[index].slot == slot) {
             logical = values.family.flags[index].value;
+            set = logical == unlocks::kFlagSet;
             return true;
         }
     }
@@ -63,18 +70,21 @@ bool gate_flag(void* context, std::uint16_t slot, std::uint8_t& logical) noexcep
     case Bank::accountFlag:
         if (input->row < values.banks.accountFlags.size()) {
             logical = values.banks.accountFlags[input->row];
+            set = logical == unlocks::kFlagSet;
             return true;
         }
         break;
     case Bank::profileFlag:
         if (input->row < values.banks.profileFlags.size()) {
             logical = values.banks.profileFlags[input->row];
+            set = logical == unlocks::kFlagSet;
             return true;
         }
         break;
     case Bank::characterFlag:
         if (input->row < values.banks.characterObjectFlags.size()) {
             logical = values.banks.characterObjectFlags[input->row];
+            set = logical == unlocks::kFlagSet;
             return true;
         }
         break;
@@ -87,12 +97,18 @@ bool gate_flag(void* context, std::uint16_t slot, std::uint8_t& logical) noexcep
 /**
  * Reads a native value slot, preferring a Family-5 override.
  * @param context Gate values shared by this evaluation.
- * @param slot Native value slot.
+ * @param instruction Bound native value slot.
  * @param value Receives the saved value on success.
  * @return False when the slot has no supported source.
  */
-bool gate_value(void* context, std::uint16_t slot, std::int32_t& value) noexcept {
+bool gate_value(const void* context,
+                const unlocks::Instruction& instruction,
+                std::int32_t& value) noexcept {
     const auto& values = *static_cast<const GateValues*>(context);
+    if (instruction.operand > (std::numeric_limits<std::uint16_t>::max)()) {
+        return false;
+    }
+    const auto slot = static_cast<std::uint16_t>(instruction.operand);
     const auto* input = gate_input(values, build_data::vendors::Opcode::loadValue, slot);
     if (input == nullptr) {
         return false;
@@ -137,11 +153,11 @@ bool gate_passes(const build_data::vendors::Gate& gate,
         return true;
     }
     GateValues values{gate, family, banks};
-    const build_data::vendors::Inputs inputs{gate_flag, gate_value, &values};
+    const unlocks::Inputs inputs{gate_flag, gate_value, &values};
     bool result = false;
-    return build_data::vendors::evaluate(
-               std::span{gate.program.instructions}.first(gate.program.count), inputs, result)
-           && result;
+    const auto program = std::span{gate.program.instructions}.first(gate.program.count);
+    return std::all_of(program.begin(), program.end(), unlocks::valid)
+           && unlocks::evaluate(program, inputs, result) && result;
 }
 
 enum class CreditGateKind { unrelated, claim, warning, malformed };
@@ -162,8 +178,7 @@ CreditGateKind credit_gate(const build_data::vendors::InteractionGate& interacti
         || program[1].opcode != vendors::Opcode::constant || program[1].operand != 0) {
         return CreditGateKind::unrelated;
     }
-    if (program.size() < 3 || program[0].operand < 0
-        || program[0].operand > (std::numeric_limits<std::uint16_t>::max)()
+    if (program.size() < 3 || program[0].operand > (std::numeric_limits<std::uint16_t>::max)()
         || program[2].opcode != vendors::Opcode::greaterThan) {
         return CreditGateKind::malformed;
     }
@@ -322,10 +337,9 @@ VendorReputationDisposition resolve_reward_sale(std::uint16_t vendorIndex,
     build_data::items::Definition package{};
     build_data::rewards::Item reward{};
     const bool context = has_reputation_context(vendor);
-    const bool rewardCatalog = build_data::rewards::ready();
+    const bool rewardCatalog = build_data::reward_definitions_ready();
     const bool itemFound = build_data::find_item_definition_index(sale.itemIndex, package);
-    const bool rewardFound =
-        rewardCatalog && build_data::rewards::find_item(sale.itemIndex, reward);
+    const bool rewardFound = rewardCatalog && build_data::find_reward_item(sale.itemIndex, reward);
     if (!rewardCatalog || !itemFound) {
         return retained || context ? VendorReputationDisposition::refused
                                    : VendorReputationDisposition::notApplicable;
@@ -742,7 +756,12 @@ VendorReputationDisposition prepare_vendor_rank_reward_sale(std::uint16_t vendor
     if (!reward_gates_pass(binding)) {
         return VendorReputationDisposition::refused;
     }
-    if (!prepare_item_reward(binding.itemIndex, 1, mutation, &reason)) {
+    std::uint64_t seed = 0;
+    reason = "random_source";
+    if (!middleware::crypto::random::fill(std::as_writable_bytes(std::span(&seed, 1)))) {
+        return VendorReputationDisposition::refused;
+    }
+    if (!prepare_item_reward(binding.itemIndex, 1, seed, mutation, &reason)) {
         mutation = {};
         return VendorReputationDisposition::refused;
     }
