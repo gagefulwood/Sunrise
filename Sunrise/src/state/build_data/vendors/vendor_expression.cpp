@@ -1,9 +1,40 @@
 #include "vendor_expression.h"
 
 #include <array>
+#include <limits>
+
+#include "middleware/content/packages/tables/definition_index_table.h"
+#include "middleware/content/packages/tables/field_reader.h"
 
 namespace sunrise::state::build_data::vendors {
 namespace {
+
+namespace tables = middleware::content::packages::tables;
+/** Native class of an eight-byte unlock instruction inside an interaction or sale gate. */
+constexpr std::uint32_t kInstructionClass = 0x80807D31U;
+/** Native class of a sale gate list's sixteen-byte expression descriptors. */
+constexpr std::uint32_t kProgramListClass = 0x80807D2FU;
+
+/** Appends one checked native instruction array without exposing a partial result. */
+[[nodiscard]] bool
+append_program(std::span<const std::byte> blob, std::size_t field, Program& program) noexcept {
+    tables::Array rows{};
+    if (!tables::read_array(blob, field, kInstructionClass, tables::kUnlockInstructionStride, rows)
+        || rows.count > program.instructions.size() - program.count) {
+        return false;
+    }
+    for (std::size_t index = 0; index < rows.count; ++index) {
+        const auto at = rows.dataOffset + index * tables::kUnlockInstructionStride;
+        std::uint32_t opcode = 0;
+        std::int32_t operand = 0;
+        if (!tables::read(blob, at, opcode)
+            || !tables::read(blob, at + tables::kUnlockInstructionOperandOffset, operand)) {
+            return false;
+        }
+        program.instructions[program.count++] = {static_cast<Opcode>(opcode), operand};
+    }
+    return true;
+}
 
 /** What one stack slot holds. The two kinds never substitute for each other. */
 enum class Kind : std::uint8_t {
@@ -73,18 +104,33 @@ step(const Instruction& instruction, const Inputs& inputs, Stack& stack) noexcep
     switch (instruction.opcode) {
     case Opcode::flag: {
         std::uint8_t logical = 0;
-        return inputs.flag(inputs.context, instruction.operand, logical)
+        return instruction.operand >= 0
+               && instruction.operand <= (std::numeric_limits<std::uint16_t>::max)()
+               && inputs.flag(
+                   inputs.context, static_cast<std::uint16_t>(instruction.operand), logical)
                && stack.push(boolean_slot(logical == kFlagActive));
     }
     case Opcode::logicalNot:
         return stack.pop(Kind::boolean, left) && stack.push(boolean_slot(!left.boolean));
+    case Opcode::logicalAnd:
+        return stack.pop(Kind::boolean, right) && stack.pop(Kind::boolean, left)
+               && stack.push(boolean_slot(left.boolean && right.boolean));
     case Opcode::loadValue: {
         std::int32_t value = 0;
-        return inputs.value(inputs.context, instruction.operand, value)
+        return instruction.operand >= 0
+               && instruction.operand <= (std::numeric_limits<std::uint16_t>::max)()
+               && inputs.value(
+                   inputs.context, static_cast<std::uint16_t>(instruction.operand), value)
                && stack.push(number_slot(value));
     }
     case Opcode::constant:
         return stack.push(number_slot(instruction.operand));
+    case Opcode::greaterThan:
+        return stack.pop(Kind::number, right) && stack.pop(Kind::number, left)
+               && stack.push(boolean_slot(left.number > right.number));
+    case Opcode::greaterOrEqual:
+        return stack.pop(Kind::number, right) && stack.pop(Kind::number, left)
+               && stack.push(boolean_slot(left.number >= right.number));
     case Opcode::lessThan:
         // The right operand was pushed last, so it comes off first.
         return stack.pop(Kind::number, right) && stack.pop(Kind::number, left)
@@ -95,6 +141,45 @@ step(const Instruction& instruction, const Inputs& inputs, Stack& stack) noexcep
 }
 
 } // namespace
+
+/** Reads one direct native interaction program. */
+bool read_program(std::span<const std::byte> blob, std::size_t field, Program& output) noexcept {
+    output = {};
+    Program parsed{};
+    if (!append_program(blob, field, parsed)) {
+        return false;
+    }
+    output = parsed;
+    return true;
+}
+
+/** Folds a sale's authored program list with logical AND. */
+bool read_program_list(std::span<const std::byte> blob,
+                       std::size_t field,
+                       Program& output) noexcept {
+    output = {};
+    tables::Array rows{};
+    if (!tables::read_array(
+            blob, field, kProgramListClass, tables::kUnlockExpressionFieldSize, rows)) {
+        return false;
+    }
+    Program parsed{};
+    for (std::size_t index = 0; index < rows.count; ++index) {
+        const auto at = rows.dataOffset + index * tables::kUnlockExpressionFieldSize;
+        const auto before = parsed.count;
+        if (!append_program(blob, at, parsed) || parsed.count == before) {
+            return false;
+        }
+        if (index != 0) {
+            if (parsed.count == parsed.instructions.size()) {
+                return false;
+            }
+            parsed.instructions[parsed.count++] = {Opcode::logicalAnd, 0};
+        }
+    }
+    output = parsed;
+    return true;
+}
 
 /** Evaluates one expression program. */
 bool evaluate(std::span<const Instruction> program, const Inputs& inputs, bool& result) noexcept {
