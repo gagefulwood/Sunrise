@@ -11,7 +11,7 @@ namespace sunrise::state::build_data::vendors {
 
 /** Stack slots one expression may use. Known gates need two, so this leaves headroom. */
 inline constexpr std::size_t kExpressionStackCapacity = 16;
-/** The same 128-instruction safety bound used for installed node expressions. */
+/** One vendor gate program stores at most 128 instructions. */
 inline constexpr std::size_t kVendorProgramCapacity = 128;
 
 /** Vendor gates use the shared native unlock instruction values. */
