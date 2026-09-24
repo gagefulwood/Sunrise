@@ -372,12 +372,12 @@ bool preview_reward_unlocks(const PendingRecordRewardGrant& mutation,
     }
     const auto& claim = mutation.vendorReward;
     if (claim.beforeCredits != 0) {
-        if (claim.rewardValueRow >= after.characterObjectValues.size()
-            || !vendor_reward_current(claim)
-            || after.characterObjectValues[claim.rewardValueRow] != claim.beforeCredits) {
+        if (claim.rankCreditRow >= after.characterObjectValues.size()
+            || !vendor_rank_reward_current(claim)
+            || after.characterObjectValues[claim.rankCreditRow] != claim.beforeCredits) {
             return false;
         }
-        after.characterObjectValues[claim.rewardValueRow] = claim.beforeCredits - 1;
+        after.characterObjectValues[claim.rankCreditRow] = claim.beforeCredits - 1;
     }
     return true;
 }
@@ -765,7 +765,7 @@ bool commit_record_reward(PendingRecordRewardGrant& mutation) noexcept {
         }
         if (ready && mutation.vendorReward.beforeCredits > 0) {
             ready = investment::store::write_unlock(investment::store::Bank::characterObjectValues,
-                                                    mutation.vendorReward.rewardValueRow,
+                                                    mutation.vendorReward.rankCreditRow,
                                                     mutation.vendorReward.beforeCredits - 1);
         }
         ready = ready && transaction.commit();

@@ -1524,6 +1524,7 @@
     <ClInclude Include="src\state\build_data\spawn_sets\definition.h" />
     <ClInclude Include="src\state\build_data\vendors\definition.h" />
     <ClInclude Include="src\state\build_data\vendors\vendor_catalog.h" />
+    <ClInclude Include="src\state\build_data\vendors\reconstructed_rank_claim_links.h" />
     <ClInclude Include="src\state\build_data\vendors\reputation_sale_catalog.h" />
     <ClInclude Include="src\state\build_data\vendors\vendor_expression.h" />
     <ClInclude Include="src\state\build_data\vendors\vendor_gate_catalog.h" />
