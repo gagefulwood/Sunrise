@@ -45,6 +45,7 @@ std::uint32_t g_vendorHash = kBanshee, g_soldHash = kGunsmithRewards,
 std::uint32_t g_cost = kCost;
 std::uint16_t g_progression = kGunsmithProgression;
 bool g_characterScope = true;
+bool g_repeatLastStep = true;
 bool g_materialAvailable = true;
 /** Build-86657 owned faction engrams, separate from the turn-in placeholders. */
 constexpr std::uint32_t kVanguardEngram = 3578462974U, kCrucibleEngram = 1368565477U,
@@ -182,6 +183,7 @@ void reset() {
     g_cost = kCost;
     g_progression = kGunsmithProgression;
     g_characterScope = true;
+    g_repeatLastStep = true;
     g_materialAvailable = true;
     g_rankSteps = {
         {{kGunsmithRankCost}, {kGunsmithRankCost}, {kGunsmithRankCost}, {kGunsmithRankCost}}};
@@ -365,6 +367,23 @@ std::int32_t credits(std::uint16_t row) {
     return value;
 }
 
+/** The cache preserves the installed repeat rule and refuses an invalid byte. */
+void verify_progression_cache() {
+    namespace cache = state::build_data::cache::records;
+    state::build_data::progressions::Definition source{};
+    source.definitionIndex = kGunsmithProgression;
+    source.scope = state::build_data::progressions::Scope::character;
+    source.repeatLastStep = true;
+    cache::ProgressionRecord record{};
+    state::build_data::progressions::Definition decoded{};
+    check(cache::encode(source, record) && record.repeatLastStep == 1
+              && cache::decode(record, decoded) && decoded.repeatLastStep,
+          "progression repeat rule survives cache");
+    record.repeatLastStep = 2;
+    check(!cache::decode(record, decoded) && decoded.definitionIndex == 0,
+          "invalid repeat rule refuses cache");
+}
+
 /** Covers exact thresholds, multiple ranks, no backfill, overflow and transaction rollback. */
 void verify_rank_rewards() {
     /** Build-86657 vendor, progression and saved claim-counter mappings. */
@@ -435,6 +454,14 @@ void verify_rank_rewards() {
               && state::prepare_vendor_reputation(kVendor, kSale, pending) == Disposition::prepared
               && state::commit_vendor_reputation(pending) && credits(kGunsmithCreditRow) == 1,
           "installed repeat-tail rule awards its crossed credit");
+    reset();
+    g_repeatLastStep = false;
+    check(store::write_unlock(store::Bank::characterProgressions,
+                              kGunsmithProgression,
+                              kFirstRepeatedRankThreshold - kAward)
+              && state::prepare_vendor_reputation(kVendor, kSale, pending) == Disposition::prepared
+              && state::commit_vendor_reputation(pending) && credits(kGunsmithCreditRow) == 0,
+          "finite installed ladder does not award beyond its final step");
     reset();
     check(store::write_unlock(
               store::Bank::characterProgressions, kGunsmithProgression, kGunsmithRankCost - kAward),
@@ -885,6 +912,22 @@ bool find_progression_slots(progressions::Scope scope,
 
 namespace progressions {
 /**
+ * Reads the fixture's rank rule for its selected progression.
+ * @param definitionIndex Requested native progression index.
+ * @param definition Receives the matching definition, or an empty row.
+ * @return False when the fixture does not hold the index.
+ */
+bool find(std::uint16_t definitionIndex, Definition& definition) noexcept {
+    definition = {};
+    if (definitionIndex != g_progression) {
+        return false;
+    }
+    definition.definitionIndex = definitionIndex;
+    definition.scope = g_characterScope ? Scope::character : Scope::account;
+    definition.repeatLastStep = g_repeatLastStep;
+    return true;
+}
+/**
  * Copies the controlled installed-cost fixture for the selected progression.
  * @param definitionIndex Requested native progression index.
  * @param output Caller-owned step storage.
@@ -974,6 +1017,7 @@ int main(int argc, char** argv) {
           "open disposable store");
     seed_reward_catalog();
     verify();
+    verify_progression_cache();
     verify_rank_rewards();
     verify_claims();
     verify_shared_sales();
