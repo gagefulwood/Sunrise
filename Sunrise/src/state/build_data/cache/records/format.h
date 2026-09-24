@@ -565,6 +565,9 @@ struct VendorDefinitionRecord {
     std::uint16_t installedCount{};
     std::uint16_t saleCount{};
     std::uint16_t thirdCount{};
+    std::uint16_t factionIndexRaw{};
+    std::uint16_t factionProgressionIndex{vendors::kUnavailableFactionProgressionIndex};
+    std::uint32_t factionHash{};
 };
 
 /** Disk form of one cost entry of a vendor sale row. */
@@ -683,7 +686,7 @@ static_assert(sizeof(SpawnPointRecord)
                      + sizeof(std::uint16_t) + 2 * sizeof(std::uint8_t));
 static_assert(sizeof(VendorIndexRecord) == 2 * sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t));
 static_assert(sizeof(VendorDefinitionRecord)
-              == 14 * sizeof(std::uint32_t) + 4 * sizeof(std::uint16_t));
+              == 15 * sizeof(std::uint32_t) + 6 * sizeof(std::uint16_t));
 static_assert(sizeof(VendorSaleCostRecord) == sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t));
 static_assert(sizeof(VendorSaleRowRecord)
               == sizeof(std::int32_t) + vendors::kSaleCostCapacity * sizeof(VendorSaleCostRecord)
