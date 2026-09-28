@@ -463,14 +463,13 @@ bool process(const ServiceRoute& route,
                 clear_transaction(outcome);
                 return refuse_web_action(message, output, written);
             }
+            // The response shape requires the extra bit, not a true value.
             middleware::web_service::StatusResponse status{};
             status.value = transaction->update.after.family4Version;
+            middleware::web_service::ResponseShape shape{};
+            web_service::resolve_response_shape(message.opcode, shape);
             if (!middleware::web_service::encode_response(
-                    message,
-                    middleware::web_service::ResponseShape::statusPair,
-                    status,
-                    output,
-                    written)) {
+                    message, shape, status, output, written)) {
                 core::log::write(core::log::Channel::server,
                                  core::log::Level::warn,
                                  "ev=acquire stage=response result=fail");
@@ -499,12 +498,10 @@ bool process(const ServiceRoute& route,
             }
             middleware::web_service::StatusResponse status{};
             status.value = transaction->update.after.family4Version;
+            middleware::web_service::ResponseShape shape{};
+            web_service::resolve_response_shape(message.opcode, shape);
             if (!middleware::web_service::encode_response(
-                    message,
-                    middleware::web_service::ResponseShape::statusPair,
-                    status,
-                    output,
-                    written)) {
+                    message, shape, status, output, written)) {
                 core::log::write(core::log::Channel::server,
                                  core::log::Level::warn,
                                  "ev=profile_acquire stage=response result=fail");
@@ -561,12 +558,10 @@ bool process(const ServiceRoute& route,
             }
             middleware::web_service::StatusResponse status{};
             status.value = transaction->update.after.family4Version;
+            middleware::web_service::ResponseShape shape{};
+            web_service::resolve_response_shape(message.opcode, shape);
             if (!middleware::web_service::encode_response(
-                    message,
-                    middleware::web_service::ResponseShape::statusPair,
-                    status,
-                    output,
-                    written)) {
+                    message, shape, status, output, written)) {
                 core::log::write(core::log::Channel::server,
                                  core::log::Level::warn,
                                  "ev=ws1801 stage=reward_response result=fail");

@@ -94,6 +94,13 @@ using SaleRows = std::array<build_data::ArtifactSaleRow, build_data::kArtifactSa
     return ladder_ranks(kArtifactUnlockProgressionIndex, experience);
 }
 
+/** @return One-based Season of Arrivals rank the given XP total earns. */
+[[nodiscard]] std::uint16_t seasonal_rank_for(std::int32_t experience) noexcept {
+    const std::int32_t earned = experience / kExperiencePerRank;
+    return static_cast<std::uint16_t>(
+        (std::min)(static_cast<std::int32_t>(kMaximumRank), earned + 1));
+}
+
 /**
  * Sets one global unlock value override, replacing any existing entry for the slot.
  * @return False when the slot is new and the override list is full.
@@ -256,10 +263,14 @@ void report_perk_refusal(std::size_t index, const char* reason) noexcept {
                       reason);
 }
 
+/** Set while a perk walk is owed; only touched under g_mutex. */
+bool g_perkWalkOwed = true;
+
 /** Earned perks set both flags in the transaction that publishes their qualifying rank. */
-bool grant_progress_flags() noexcept {
+bool grant_progress_flags(bool& walked) noexcept {
     if (!build_data::season_pass_ready() || !build_data::reward_definitions_ready()
         || !build_data::item_definitions_ready()) {
+        g_perkWalkOwed = true;
         return true;
     }
     AccountState account;
@@ -318,6 +329,7 @@ bool grant_progress_flags() noexcept {
             flags.accountFlags[flag] = unlocks::kFlagSet;
         }
     }
+    walked = true;
     return true;
 }
 
@@ -394,19 +406,22 @@ bool seed_seasonal_progression() noexcept {
         }
     }
     const std::uint32_t mask = artifact_mask(rows, count);
-    const bool published = publish_experience_lanes(experience)
-                           && publish_artifact_locked(family, mask, experience)
-                           && investment::store::write_family5(family) && grant_progress_flags()
-                           && transaction.commit();
+    bool walked = false;
+    // A later character pick publishes only a selection patch, so only an owed walk runs here.
+    const bool published =
+        publish_experience_lanes(experience) && publish_artifact_locked(family, mask, experience)
+        && investment::store::write_family5(family)
+        && (!g_perkWalkOwed || grant_progress_flags(walked)) && transaction.commit();
+    if (published && walked) {
+        g_perkWalkOwed = false;
+    }
     investment::store::g_mutex.unlock();
     return published;
 }
 
 /** @return One-based Season of Arrivals rank the published XP earns. */
 std::uint16_t seasonal_rank() noexcept {
-    const std::int32_t earned = seasonal_experience() / kExperiencePerRank;
-    return static_cast<std::uint16_t>(
-        (std::min)(static_cast<std::int32_t>(kMaximumRank), earned + 1));
+    return seasonal_rank_for(seasonal_experience());
 }
 
 /** @return Account-wide Power bonus published by the seasonal artifact. */
@@ -439,6 +454,8 @@ bool grant_seasonal_experience(std::int32_t amount) noexcept {
         return false;
     }
     const auto total = previous + amount;
+    const bool walkPerks =
+        g_perkWalkOwed || seasonal_rank_for(previous) != seasonal_rank_for(total);
 
     Family5State family;
     if (!investment::store::read_family5(family)) {
@@ -447,9 +464,15 @@ bool grant_seasonal_experience(std::int32_t amount) noexcept {
     SaleRows rows{};
     std::size_t count = 0;
     const std::uint32_t mask = sale_rows(rows, count) ? artifact_mask(rows, count) : 0U;
-    return publish_experience_lanes(total) && publish_artifact_locked(family, mask, total)
-           && investment::store::write_family5(family) && grant_progress_flags()
-           && transaction.commit();
+    bool walked = false;
+    const bool granted = publish_experience_lanes(total)
+                         && publish_artifact_locked(family, mask, total)
+                         && investment::store::write_family5(family)
+                         && (!walkPerks || grant_progress_flags(walked)) && transaction.commit();
+    if (granted && walked) {
+        g_perkWalkOwed = false;
+    }
+    return granted;
 }
 
 /** @return True when this Season pass reward row is already claimed. */

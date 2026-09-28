@@ -194,8 +194,8 @@ bind_gate(const NativeProgram& program, const GateMaps& maps, domain::Gate& gate
 [[nodiscard]] bool reward_package(const domain::SaleRow& sale) noexcept {
     state::build_data::items::Definition item{};
     state::build_data::rewards::Item reward{};
-    return sale.categoryIndex != domain::kAbsentCategoryIndex && sale.costQuantity == 0
-           && sale.costItemIndex == domain::kAbsentCostItem
+    return sale.categoryIndex != domain::kAbsentCategoryIndex
+           && sale.priceState == domain::PriceState::plain && sale.costCount == 0
            && state::build_data::find_item_definition_index(sale.itemIndex, item)
            && state::build_data::find_reward_item(sale.itemIndex, reward)
            && item.definitionHash == reward.definitionHash
@@ -203,7 +203,16 @@ bind_gate(const NativeProgram& program, const GateMaps& maps, domain::Gate& gate
            && (reward.flags & state::build_data::rewards::kOpenOnAcquisition) != 0;
 }
 
-/** Reads one vendor's relevant sale and matching interaction gates as one unit. */
+/**
+ * Appends one vendor's package-sale, interaction and reply gates only after complete decoding.
+ * @param source Borrowed package source; no package spans escape this call.
+ * @param scratch Reusable package-reader storage.
+ * @param maps Borrowed installed unlock-slot mappings.
+ * @param vendor Published vendor identity and expected array bounds.
+ * @param interactions Receives copied interaction and reply gates on success.
+ * @param sales Receives copied sale gates on success.
+ * @return False for unreadable or unsupported data; neither output is appended on failure.
+ */
 [[nodiscard]] bool read_vendor(const reader::Source& source,
                                reader::Scratch& scratch,
                                const GateMaps& maps,
@@ -272,9 +281,21 @@ bind_gate(const NativeProgram& program, const GateMaps& maps, domain::Gate& gate
         }
         NativeProgram condition{};
         domain::InteractionGate gate{};
+        tables::Array replies{};
         if (!read_program(bytes, at + kInteractionConditionField, condition)
-            || !bind_gate(condition, maps, gate.condition)) {
+            || !bind_gate(condition, maps, gate.condition)
+            || !tables::read_array(
+                bytes, at + kInteractionReplyField, kReplyRowClass, kReplyRowStride, replies)) {
             return false;
+        }
+        for (std::size_t reply = 0; reply < replies.count; ++reply) {
+            NativeProgram program{};
+            domain::Gate replyCondition{};
+            if (!read_program(bytes, replies.dataOffset + reply * kReplyRowStride, program)
+                || !bind_gate(program, maps, replyCondition)) {
+                return false;
+            }
+            gate.replyConditions.push_back(replyCondition);
         }
         gate.vendorHash = vendor.definitionHash;
         gate.index = static_cast<std::uint16_t>(row);

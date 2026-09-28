@@ -71,7 +71,12 @@ bool replace_gates(std::span<const InteractionGate> interactions,
     }
     if (std::any_of(interactions.begin(),
                     interactions.end(),
-                    [](const auto& row) { return !valid_gate(row.condition); })
+                    [](const auto& row) {
+                        return !valid_gate(row.condition)
+                               || !std::all_of(row.replyConditions.begin(),
+                                               row.replyConditions.end(),
+                                               valid_gate);
+                    })
         || std::any_of(sales.begin(), sales.end(), [](const auto& row) {
                return !valid_gate(row.admission) || !valid_gate(row.selection);
            })) {

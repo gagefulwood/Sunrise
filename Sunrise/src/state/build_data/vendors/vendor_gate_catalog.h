@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 #include "../../unlocks/unlocks_expression.h"
 
@@ -51,6 +52,8 @@ struct InteractionGate {
     std::uint16_t index{};
     std::int32_t categoryIndex{};
     Gate condition{};
+    /** Conditional reward programs in native reply order; they do not select a sale. */
+    std::vector<Gate> replyConditions;
 };
 
 /** Native sale condition fields for one installed package offer. */
@@ -63,7 +66,7 @@ struct SaleGates {
 };
 
 /**
- * Publishes one complete process-local extraction. Cached vendor rows do not store expressions.
+ * Publishes process-local interaction, reply and sale gates; cached vendor rows omit them.
  * @param interactions Native interaction gates, unique by vendor and row index.
  * @param sales Native sale gates, unique by vendor and row index.
  * @return False when ranges or identities are invalid; no partial publication occurs.

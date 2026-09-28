@@ -3,11 +3,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 #include "../build_data/items/quest_initialization.h"
 #include "../build_data/records/definition.h"
 #include "../build_data/rewards/definition.h"
+#include "../build_data/vendors/definition.h"
+#include "../unlocks/definition.h"
 #include "state.h"
 #include "state_vendor_reputation_runtime.h"
 
@@ -266,6 +269,9 @@ struct PendingRecordRewardGrant {
     bool prepared{};
 };
 
+/** How one reward preparation ended. */
+enum class RewardPreparation : std::uint8_t { prepared, deferred, unresolvable };
+
 /** One uncommitted Season reward, the native row it will claim, and the seed of its draw. */
 struct PendingSeasonPassReward {
     PendingRecordRewardGrant grant{};
@@ -518,14 +524,18 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
  * Native-default sockets, a unique runtime SOID, and the selected character's current item level
  * are used. Full loadout resolution is the authoritative bucket-capacity check.
  *
- * @param collectibleIndex Collections row the Client pulled from.
+ * @param collectibleIndex Collections row that owns the item, or kNoCollectibleIndex.
  * @param definitionHash Installed item definition requested by the Client.
+ * @param price A vendor sale row's cost entries, spent in place of the collectible's material
+ *        set; absent for a Collections pull, which pays with the collectible's materials.
  * @param mutation Gets a checked after-image without changing account State.
  * @return True when the item and every existing loadout row resolve with one free native row.
  */
-[[nodiscard]] bool prepare_item_acquisition(std::uint16_t collectibleIndex,
-                                            std::uint32_t definitionHash,
-                                            PendingItemAcquisition& mutation) noexcept;
+[[nodiscard]] bool
+prepare_item_acquisition(std::uint16_t collectibleIndex,
+                         std::uint32_t definitionHash,
+                         std::optional<std::span<const build_data::vendors::SaleCost>> price,
+                         PendingItemAcquisition& mutation) noexcept;
 
 /** Prepares a direct character-item grant without a Collections charge. */
 [[nodiscard]] bool prepare_item_acquisition_for_item(std::uint16_t itemDefinitionIndex,
@@ -538,11 +548,11 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
  * @param seed Caller-drawn entropy for any wrapper draws.
  * @param refusal Receives a static reason on failure.
  */
-[[nodiscard]] bool prepare_item_reward(std::uint16_t itemIndex,
-                                       std::uint32_t quantity,
-                                       std::uint64_t seed,
-                                       PendingRecordRewardGrant& mutation,
-                                       const char** refusal = nullptr) noexcept;
+[[nodiscard]] RewardPreparation prepare_item_reward(std::uint16_t itemIndex,
+                                                    std::uint32_t quantity,
+                                                    std::uint64_t seed,
+                                                    PendingRecordRewardGrant& mutation,
+                                                    const char** refusal = nullptr) noexcept;
 /**
  * Prepares an eligible native pass row without writing its claim or acquisition flags.
  * @param seed Caller-drawn entropy; the commit replays the same draw from it.
@@ -564,12 +574,13 @@ set_selected_title(std::uint16_t recordIndex, std::uint64_t& characterSoid, bool
  * @param rewards Item rows the record grants.
  * @param claimedRecordIndex Record already claimed in the banks, or kUnclaimedRecordIndex.
  * @param mutation Receives the prepared grant.
- * @return True when every row fits the account after-image.
+ * @return Prepared when every row fits the account after-image.
  */
-[[nodiscard]] bool prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
-                                               std::uint16_t claimedRecordIndex,
-                                               PendingRecordRewardGrant& mutation,
-                                               const char** refusal = nullptr) noexcept;
+[[nodiscard]] RewardPreparation
+prepare_record_reward_grant(std::span<const DirectRecordReward> rewards,
+                            std::uint16_t claimedRecordIndex,
+                            PendingRecordRewardGrant& mutation,
+                            const char** refusal = nullptr) noexcept;
 
 /** Builds the full account after-image while a record reward remains current. */
 [[nodiscard]] bool preview_record_reward_grant(const PendingRecordRewardGrant& mutation,
@@ -603,15 +614,18 @@ reserve_selected_character_inventory_serial(std::int32_t& mutationSerial) noexce
  * An existing non-full stack is incremented. Otherwise a new dense State entry is appended only
  * when the installed profile bucket still owns a free native row.
  *
- * @param collectibleIndex Collections row the Client pulled from.
+ * @param collectibleIndex Collections row that owns the item, or kNoCollectibleIndex.
  * @param definitionHash Installed stackable definition requested by the Client.
+ * @param price A vendor sale row's cost entries, spent in place of the collectible's material
+ *        set; absent for a Collections pull, which pays with the collectible's materials.
  * @param mutation Gets the checked profile before/after images without changing account State.
  * @return True when the definition belongs to the main profile array and one unit fits.
  */
-[[nodiscard]] bool
-prepare_profile_item_acquisition(std::uint16_t collectibleIndex,
-                                 std::uint32_t definitionHash,
-                                 PendingProfileItemAcquisition& mutation) noexcept;
+[[nodiscard]] bool prepare_profile_item_acquisition(
+    std::uint16_t collectibleIndex,
+    std::uint32_t definitionHash,
+    std::optional<std::span<const build_data::vendors::SaleCost>> price,
+    PendingProfileItemAcquisition& mutation) noexcept;
 
 /** Prepares a direct profile-stack grant without a Collections charge. */
 [[nodiscard]] bool
