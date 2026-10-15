@@ -23,6 +23,7 @@
 #include "runtime.h"
 #include "state.h"
 #include "state_account_transaction_helpers.h"
+#include "state_vendor_reputation_runtime.h"
 #include "storage/internal.h"
 
 namespace sunrise::state {
@@ -351,6 +352,7 @@ bool publish_bootstrap_token(std::span<const std::byte> token) noexcept {
 
 /** Records when the account signed in, on every character the account owns. */
 void publish_sign_in_time(std::uint64_t seconds) noexcept {
+    reset_answered_vendor_interactions();
     investment::store::set_sign_in_time(seconds);
 }
 
