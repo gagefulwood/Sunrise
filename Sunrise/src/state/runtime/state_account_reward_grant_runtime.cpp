@@ -16,6 +16,7 @@
 #include "../unlocks/unlocks_records.h"
 #include "runtime.h"
 #include "state_account_transaction_helpers.h"
+#include "state_vendor_reputation_runtime.h"
 #include "storage/internal.h"
 
 namespace sunrise::state {
@@ -953,6 +954,12 @@ bool commit_record_reward(PendingRecordRewardGrant& mutation) noexcept {
                                                     mutation.vendorReward.beforeCredits - 1);
         }
         ready = ready && transaction.commit();
+    }
+    if (ready
+        && (mutation.vendorReward.vendorIndex != 0
+            || mutation.vendorReward.interactionIndex != 0)) {
+        state::mark_vendor_interaction_answered(mutation.vendorReward.vendorIndex,
+                                                mutation.vendorReward.interactionIndex);
     }
     if (!ready && mutation.claimedRecordIndex != kUnclaimedRecordIndex) {
         // The claim was written when the reward was prepared, so a refused install undoes it.
