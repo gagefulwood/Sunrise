@@ -504,6 +504,24 @@ VendorReputationDisposition resolve_reputation_turn_in(std::uint16_t vendorIndex
         if (!reconstructed_credit_gate(*link, interaction, award.rankCreditRow)) {
             return VendorReputationDisposition::refused;
         }
+    } else {
+        std::uint16_t dynamicCreditRow = 0;
+        std::size_t claimCount = 0;
+        for (std::size_t index = 0; index < vendor.thirdCount; ++index) {
+            vendors::InteractionGate candidate{};
+            if (!vendors::find_interaction_gate(
+                    vendor.definitionHash, static_cast<std::uint16_t>(index), candidate)) {
+                continue;
+            }
+            std::uint16_t candidateRow = 0;
+            if (credit_gate(candidate, candidateRow) == CreditGateKind::claim) {
+                dynamicCreditRow = candidateRow;
+                ++claimCount;
+            }
+        }
+        if (claimCount == 1) {
+            award.rankCreditRow = dynamicCreditRow;
+        }
     }
     award.repeatLastStep = progression.repeatLastStep;
     if (award.rankCreditRow != 0) {
@@ -799,24 +817,79 @@ prepare_vendor_rank_reward_interaction(std::uint16_t vendorIndex,
     if (!build_data::vendors::find_index(vendorIndex, entry)) {
         return VendorReputationDisposition::notApplicable;
     }
-    const auto* link =
-        build_data::vendors::find_reconstructed_rank_claim_link(entry.definitionHash);
-    if (link == nullptr || link->interactionIndex != interactionIndex) {
-        build_data::vendors::InteractionGate interaction{};
-        std::uint16_t row = 0;
-        if (build_data::vendors::find_interaction_gate(
-                entry.definitionHash, interactionIndex, interaction)
-            && credit_gate(interaction, row) != CreditGateKind::unrelated) {
-            return VendorReputationDisposition::refused;
-        }
-        return VendorReputationDisposition::notApplicable;
+
+    build_data::vendors::InteractionGate interaction{};
+    const bool hasInteraction = build_data::vendors::find_interaction_gate(
+        entry.definitionHash, interactionIndex, interaction);
+
+    std::uint16_t interactionCreditRow = 0;
+    const auto gateKind =
+        hasInteraction ? credit_gate(interaction, interactionCreditRow) : CreditGateKind::unrelated;
+
+    if (gateKind == CreditGateKind::warning || gateKind == CreditGateKind::malformed) {
+        return VendorReputationDisposition::refused;
     }
+
+    // Attempt dynamic reply matching by scanning the vendor's installed sales for a unique
+    // matching reward package within the interaction's category.
+    std::optional<std::uint16_t> targetSaleIndex{};
+    std::int32_t targetCategoryIndex = build_data::vendors::kAbsentCategoryIndex;
+    std::uint16_t targetInteractionIndex = interactionIndex;
+
+    build_data::vendors::Definition vendor{};
+    if (hasInteraction && gateKind == CreditGateKind::claim
+        && build_data::vendors::find(entry.definitionHash, vendor)) {
+        std::optional<std::uint16_t> matchedSale{};
+        std::size_t matchCount = 0;
+        for (std::size_t saleIdx = 0; saleIdx < vendor.saleCount; ++saleIdx) {
+            build_data::vendors::SaleRow sale{};
+            if (!build_data::vendors::sale_row(vendor, static_cast<std::uint16_t>(saleIdx), sale)) {
+                continue;
+            }
+            if (sale.categoryIndex != interaction.categoryIndex) {
+                continue;
+            }
+            if (sale.costCount != 0 || sale.priceState != build_data::vendors::PriceState::plain) {
+                continue;
+            }
+            RewardSaleBinding binding{};
+            if (resolve_reward_sale(vendorIndex, static_cast<std::uint16_t>(saleIdx), binding)
+                    == VendorReputationDisposition::prepared
+                && binding.interaction.index == interactionIndex
+                && binding.categoryIndex == interaction.categoryIndex) {
+                matchedSale = static_cast<std::uint16_t>(saleIdx);
+                ++matchCount;
+            }
+        }
+        if (matchCount == 1) {
+            targetSaleIndex = matchedSale;
+            targetCategoryIndex = interaction.categoryIndex;
+            targetInteractionIndex = interaction.index;
+        }
+    }
+
+    // Fall back to reconstructed rank claim links if dynamic matching was unmapped or ambiguous.
+    if (!targetSaleIndex) {
+        const auto* link =
+            build_data::vendors::find_reconstructed_rank_claim_link(entry.definitionHash);
+        if (link != nullptr && link->interactionIndex == interactionIndex) {
+            targetSaleIndex = link->saleIndex;
+            targetCategoryIndex = link->categoryIndex;
+            targetInteractionIndex = link->interactionIndex;
+        } else {
+            if (gateKind != CreditGateKind::unrelated) {
+                return VendorReputationDisposition::refused;
+            }
+            return VendorReputationDisposition::notApplicable;
+        }
+    }
+
     const char* reason = nullptr;
     const auto disposition =
-        prepare_rank_reward(vendorIndex, link->saleIndex, replyIndex, mutation, reason);
+        prepare_rank_reward(vendorIndex, *targetSaleIndex, replyIndex, mutation, reason);
     if (disposition != VendorReputationDisposition::prepared
-        || mutation.vendorReward.interactionIndex != link->interactionIndex
-        || mutation.vendorReward.categoryIndex != link->categoryIndex) {
+        || mutation.vendorReward.interactionIndex != targetInteractionIndex
+        || mutation.vendorReward.categoryIndex != targetCategoryIndex) {
         mutation = {};
         return VendorReputationDisposition::refused;
     }
