@@ -6,16 +6,22 @@
 
 namespace sunrise::state::build_data::season_pass {
 
-/** Discards the installed pass, including its native claim indices. */
+/** Discards the installed pass, including its native claim indices and wrapper packages. */
 void clear() noexcept;
-/** Checks row bounds; unavailable rows retain their native positions. */
-[[nodiscard]] bool valid(std::span<const Reward> rewards) noexcept;
+/** Checks row and wrapper bounds; unavailable rows retain their native positions. */
+[[nodiscard]] bool valid(std::span<const Reward> rewards,
+                         std::span<const Package> packages) noexcept;
 /** Publishes a validated pass without reordering its claim indices. */
-[[nodiscard]] bool replace(std::span<const Reward> rewards) noexcept;
+[[nodiscard]] bool replace(std::span<const Reward> rewards,
+                           std::span<const Package> packages) noexcept;
 /** Copies one native claim row; clears the output when absent or unavailable. */
 [[nodiscard]] bool find(std::uint16_t rewardIndex, Reward& reward) noexcept;
+/** Finds the wrapper package one item hash opens into. */
+[[nodiscard]] bool find_package(std::uint32_t definitionHash, Package& package) noexcept;
 /** Copies the complete pass; count is zero when the destination is too small. */
 [[nodiscard]] bool snapshot(std::span<Reward> output, std::size_t& count) noexcept;
+/** Copies every wrapper package; count is zero when the destination is too small. */
+[[nodiscard]] bool snapshot_packages(std::span<Package> output, std::size_t& count) noexcept;
 /** Number of native positions, including unavailable rows. */
 [[nodiscard]] std::size_t count() noexcept;
 

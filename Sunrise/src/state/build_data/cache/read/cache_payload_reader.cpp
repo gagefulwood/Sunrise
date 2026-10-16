@@ -123,6 +123,8 @@ void clear(records::MutableDomains output) noexcept {
     std::fill(output.progressionSteps.begin(), output.progressionSteps.end(), progressions::Step{});
     std::fill(
         output.seasonPassRewards.begin(), output.seasonPassRewards.end(), season_pass::Reward{});
+    std::fill(
+        output.seasonPassPackages.begin(), output.seasonPassPackages.end(), season_pass::Package{});
     std::fill(output.bounties.begin(), output.bounties.end(), bounties::Definition{});
     std::fill(output.rewardPools.begin(), output.rewardPools.end(), rewards::Pool{});
     std::fill(output.rewardEntries.begin(), output.rewardEntries.end(), rewards::Entry{});
@@ -172,6 +174,7 @@ bool expected_size(const records::DomainCounts& counts, std::uint64_t& size) noe
            && add_records(counts.recordRewards, sizeof(records::RecordRewardRecord), size)
            && add_records(counts.progressionSteps, sizeof(records::ProgressionStepRecord), size)
            && add_records(counts.seasonPassRewards, sizeof(records::SeasonPassRewardRecord), size)
+           && add_records(counts.seasonPassPackages, sizeof(records::SeasonPassPackageRecord), size)
            && add_records(counts.bounties, sizeof(records::BountyRecord), size)
            && add_records(counts.rewardPools, sizeof(records::RewardPoolRecord), size)
            && add_records(counts.rewardEntries, sizeof(records::RewardEntryRecord), size)
@@ -293,6 +296,9 @@ bool read_payload(HANDLE file,
             && read_domain<records::SeasonPassRewardRecord>(
                 file, output.seasonPassRewards.first(counts.seasonPassRewards), checksum);
     valid = valid
+            && read_domain<records::SeasonPassPackageRecord>(
+                file, output.seasonPassPackages.first(counts.seasonPassPackages), checksum);
+    valid = valid
             && read_domain<records::BountyRecord>(
                 file, output.bounties.first(counts.bounties), checksum);
     valid = valid
@@ -356,6 +362,7 @@ bool read_payload(HANDLE file,
             output.recordRewards.first(counts.recordRewards),
             output.progressionSteps.first(counts.progressionSteps),
             output.seasonPassRewards.first(counts.seasonPassRewards),
+            output.seasonPassPackages.first(counts.seasonPassPackages),
             output.bounties.first(counts.bounties),
             output.rewardPools.first(counts.rewardPools),
             output.rewardEntries.first(counts.rewardEntries),

@@ -101,6 +101,8 @@ bool payload_checksum(records::Domains domains, std::uint64_t& checksum) noexcep
            && checksum_domain<records::RecordRewardRecord>(domains.recordRewards, checksum)
            && checksum_domain<records::ProgressionStepRecord>(domains.progressionSteps, checksum)
            && checksum_domain<records::SeasonPassRewardRecord>(domains.seasonPassRewards, checksum)
+           && checksum_domain<records::SeasonPassPackageRecord>(domains.seasonPassPackages,
+                                                                checksum)
            && checksum_domain<records::BountyRecord>(domains.bounties, checksum)
            && checksum_domain<records::RewardPoolRecord>(domains.rewardPools, checksum)
            && checksum_domain<records::RewardEntryRecord>(domains.rewardEntries, checksum)
@@ -148,6 +150,7 @@ bool write_payload(HANDLE file, records::Domains domains) noexcept {
            && write_domain<records::RecordRewardRecord>(file, domains.recordRewards)
            && write_domain<records::ProgressionStepRecord>(file, domains.progressionSteps)
            && write_domain<records::SeasonPassRewardRecord>(file, domains.seasonPassRewards)
+           && write_domain<records::SeasonPassPackageRecord>(file, domains.seasonPassPackages)
            && write_domain<records::BountyRecord>(file, domains.bounties)
            && write_domain<records::RewardPoolRecord>(file, domains.rewardPools)
            && write_domain<records::RewardEntryRecord>(file, domains.rewardEntries)

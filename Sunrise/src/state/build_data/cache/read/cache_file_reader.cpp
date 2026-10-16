@@ -53,6 +53,7 @@ namespace {
            && counts.recordRewards <= output.recordRewards.size()
            && counts.progressionSteps <= output.progressionSteps.size()
            && counts.seasonPassRewards <= output.seasonPassRewards.size()
+           && counts.seasonPassPackages <= output.seasonPassPackages.size()
            && counts.bounties <= output.bounties.size()
            && counts.rewardPools <= output.rewardPools.size()
            && counts.rewardEntries <= output.rewardEntries.size()
@@ -99,6 +100,7 @@ namespace {
         header.recordRewardCount,
         header.progressionStepCount,
         header.seasonPassRewardCount,
+        header.seasonPassPackageCount,
         header.bountyCount,
         header.rewardPoolCount,
         header.rewardEntryCount,
@@ -125,10 +127,12 @@ namespace {
 
 } // namespace
 
-/** Reads the PE identity and ties it to the configured-equipment hash. */
+/** Reads the PE identity and ties it to the configured equipment and the package content. */
 bool current_build_identity(std::uint64_t configuredEquipmentHash,
+                            std::uint64_t contentHash,
                             BuildIdentity& identity) noexcept {
     identity = {};
+    identity.contentHash = contentHash;
     const HMODULE module = GetModuleHandleW(nullptr);
     if (module == nullptr) {
         return false;
@@ -197,6 +201,7 @@ LoadStatus load(const wchar_t* path,
         header.imageTimestamp,
         header.imageSize,
         header.configuredEquipmentHash,
+        header.contentHash,
     };
     if (!(cachedBuild == expectedBuild)) {
         return close_with(file, LoadStatus::stale);

@@ -95,6 +95,11 @@ namespace sunrise::state::build_data::cache::records {
 [[nodiscard]] bool decode(const SeasonPassRewardRecord& record,
                           season_pass::Reward& value) noexcept;
 
+[[nodiscard]] bool encode(const season_pass::Package& value,
+                          SeasonPassPackageRecord& record) noexcept;
+[[nodiscard]] bool decode(const SeasonPassPackageRecord& record,
+                          season_pass::Package& value) noexcept;
+
 [[nodiscard]] bool encode(const bounties::Definition& value, BountyRecord& record) noexcept;
 [[nodiscard]] bool decode(const BountyRecord& record, bounties::Definition& value) noexcept;
 

@@ -41,12 +41,19 @@ namespace sunrise::state::build_data {
 void invalidate_cache() noexcept;
 
 /**
+ * Names the package content the mappings come from, so a changed mod set rebuilds the cache.
+ * Call before initialize; zero stands for a host with no content manifest.
+ * @param contentHash Leading bytes of the combined installed and mod fingerprint.
+ */
+void bind_content(std::uint64_t contentHash) noexcept;
+
+/**
  * Loads the one build-data cache next to the module, when there is one.
  * Once a snapshot is on disk, later replacements are refused until State restarts. A failed first
  * commit withdraws that publication and restores nothing. Keep readers out until this returns.
  * @param module Loaded Sunrise DLL module, or null to turn off disk saving.
  * @param configuredEquipmentHash Hash of the authored equipment. Not a secret.
- * @return True when the cache is missing, stale, or passes every check.
+ * @return True when a valid cache loads or extraction can safely rebuild it.
  */
 [[nodiscard]] bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept;
 
@@ -393,9 +400,11 @@ publish_progression_definitions(std::span<const progressions::Definition> defini
 /**
  * Publishes the season pass reward list with its fixed socket overrides.
  * @param rewards Complete reward rows in native reward order.
+ * @param packages Complete wrapper packages.
  * @return True when the rows pass the checks and any needed cache write succeeds.
  */
-[[nodiscard]] bool publish_season_pass(std::span<const season_pass::Reward> rewards) noexcept;
+[[nodiscard]] bool publish_season_pass(std::span<const season_pass::Reward> rewards,
+                                       std::span<const season_pass::Package> packages) noexcept;
 
 /** Checks rows against the rules publish_season_pass applies to the whole list. */
 [[nodiscard]] bool valid_season_pass_rewards(std::span<const season_pass::Reward> rewards) noexcept;
@@ -441,6 +450,15 @@ publish_progression_definitions(std::span<const progressions::Definition> defini
  */
 [[nodiscard]] bool read_reward_definitions(void* context,
                                            bool (*consume)(void*, rewards::View) noexcept) noexcept;
+
+/**
+ * Finds the item set one season pass wrapper opens into.
+ * @param definitionHash Authored wrapper item hash.
+ * @param package Receives the wrapper and its items.
+ * @return True when the catalog is ready and a wrapper carries that hash.
+ */
+[[nodiscard]] bool find_season_pass_package(std::uint32_t definitionHash,
+                                            season_pass::Package& package) noexcept;
 
 /** @return True when the repeatable bounty table is in State. */
 [[nodiscard]] bool repeatable_bounties_ready() noexcept;

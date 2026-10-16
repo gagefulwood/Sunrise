@@ -195,7 +195,8 @@ bool build() noexcept {
             if (!state::build_data::season_pass_ready() && storage.rewardBuild.conditions.loaded()
                 && build_season_pass(source, storage, std::span<const std::byte>{storage.root})
                 && !state::build_data::publish_season_pass(
-                    std::span(storage.seasonPassRewards).first(storage.seasonPassRewardCount))) {
+                    std::span(storage.seasonPassRewards).first(storage.seasonPassRewardCount),
+                    std::span(storage.seasonPassPackages).first(storage.seasonPassPackageCount))) {
                 core::log::write(core::log::Channel::client,
                                  core::log::Level::warn,
                                  "ev=pkg stage=season_pass result=fail reason=publish");

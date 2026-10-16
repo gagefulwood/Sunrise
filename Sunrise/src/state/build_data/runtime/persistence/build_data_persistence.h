@@ -79,6 +79,7 @@ struct Context {
     std::vector<progressions::Definition> progressionScratch{};
     std::vector<progressions::Step> progressionStepScratch{};
     std::vector<season_pass::Reward> seasonPassRewardScratch{};
+    std::vector<season_pass::Package> seasonPassPackageScratch{};
     std::vector<bounties::Definition> bountyScratch{};
     std::vector<rewards::Pool> rewardPoolScratch{};
     std::vector<rewards::Entry> rewardEntryScratch{};

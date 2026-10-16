@@ -44,6 +44,19 @@ struct Storage {
     std::size_t conditionalRows{};
     /** Sale rows whose cost array did not read, kept but never charged. */
     std::size_t unreadableRows{};
+
+    /** Only published prefixes are visible; extraction fully assigns each new row. */
+    void reset() noexcept {
+        blob.clear();
+        factionBlob.clear();
+        factionRows = {};
+        indexCount = 0;
+        definitionCount = 0;
+        saleRowCount = 0;
+        installedRowCount = 0;
+        conditionalRows = 0;
+        unreadableRows = 0;
+    }
 };
 
 /** @param blob Source bytes. @param offset Field offset. @param value Receives the field. */
@@ -106,11 +119,9 @@ read_factions(const reader::Source& source, reader::Scratch& scratch, Storage& s
 }
 
 /**
- * Reads what one sale row charges: every entry of its cost array, and whether those entries are
- * the price. An entry is static only when both of its expression arrays are empty and its
- * trailing word is the plain value. One carrying an expression, or another word, makes the row
- * conditional: its price then depends on state this build does not evaluate, so the entries are
- * kept for the record and the row is never charged.
+ * Reads one sale row's cost entries and whether they are its price.
+ * An entry is static only with both expression arrays empty and the plain trailing word. Any other
+ * entry makes the row conditional: its entries are kept and the row is never charged.
  * @param blob Whole definition blob.
  * @param at Sale row offset inside the blob.
  * @param value Receives the entries and the row's price state.
@@ -370,7 +381,7 @@ bool build(const reader::Source& source, reader::Scratch& scratch) noexcept {
         return true;
     }
     static Storage storage{};
-    storage = {};
+    storage.reset();
     if (!read_factions(source, scratch, storage)) {
         // A missing faction table removes reputation links, not ordinary vendor sales.
         storage.factionRows = {};

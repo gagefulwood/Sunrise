@@ -142,7 +142,6 @@ struct Storage {
     DetailRequests detailRequests{};
     std::array<std::uint16_t, kDetailCapacity> requestedDetailIndices{};
     std::vector<state::build_data::items::details::Definition> details{};
-    AuthoredHashes authoredHashes{};
     std::vector<std::byte> abilityTable{};
     std::vector<std::byte> abilityPool{};
     std::array<state::build_data::abilities::Definition,
@@ -158,11 +157,15 @@ struct Storage {
                state::build_data::progressions::kStepCapacity>
         progressionSteps{};
     std::size_t progressionStepCount{};
-    /** Season pass reward rows in native claim order. */
+    /** Season pass reward rows and the wrapper items they grant. */
     std::array<state::build_data::season_pass::Reward,
                state::build_data::season_pass::kRewardCapacity>
         seasonPassRewards{};
+    std::array<state::build_data::season_pass::Package,
+               state::build_data::season_pass::kPackageCapacity>
+        seasonPassPackages{};
     std::size_t seasonPassRewardCount{};
+    std::size_t seasonPassPackageCount{};
     /** Repeatable bounty rows, keyed by the item-type pair their pool shares. */
     std::array<state::build_data::bounties::Definition,
                state::build_data::bounties::kDefinitionCapacity>
@@ -382,7 +385,7 @@ read_investment_constants(const reader::Source& source,
                                       std::span<state::build_data::progressions::Step> steps,
                                       std::size_t& stepCount) noexcept;
 
-/** Reads the season pass reward list, keeping an unreadable row as an unavailable one. */
+/** Reads the season pass reward list and the wrapper items it grants. */
 [[nodiscard]] bool build_season_pass(const reader::Source& source,
                                      Storage& storage,
                                      std::span<const std::byte> root) noexcept;

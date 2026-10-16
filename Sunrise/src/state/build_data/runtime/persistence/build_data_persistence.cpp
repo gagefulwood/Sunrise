@@ -91,6 +91,7 @@ to_record(const constants::InvestmentConstants& value) noexcept {
            && progressions::snapshot(scratch.progressions, counts.progressions)
            && progressions::snapshot_steps(scratch.progressionSteps, counts.progressionSteps)
            && season_pass::snapshot(scratch.seasonPassRewards, counts.seasonPassRewards)
+           && season_pass::snapshot_packages(scratch.seasonPassPackages, counts.seasonPassPackages)
            && bounties::snapshot(scratch.bounties, counts.bounties)
            && rewards::snapshot(scratch.rewardPools, counts.rewardPools)
            && rewards::snapshot(scratch.rewardEntries, counts.rewardEntries)
@@ -229,6 +230,9 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
     const auto seasonPassRewards =
         ensure_scratch<season_pass::Reward, season_pass::kRewardCapacity>(
             state.seasonPassRewardScratch);
+    const auto seasonPassPackages =
+        ensure_scratch<season_pass::Package, season_pass::kPackageCapacity>(
+            state.seasonPassPackageScratch);
     const auto bountyRows =
         ensure_scratch<bounties::Definition, bounties::kDefinitionCapacity>(state.bountyScratch);
     const auto positionProfiles = ensure_scratch<gameplay::entity_position_profiles::Row,
@@ -272,6 +276,7 @@ cache::records::MutableDomains scratch_domains(Context& state) noexcept {
         recordRewards,
         progressionSteps,
         seasonPassRewards,
+        seasonPassPackages,
         bountyRows,
         ensure_scratch<rewards::Pool, rewards::kPoolCapacity>(state.rewardPoolScratch),
         ensure_scratch<rewards::Entry, rewards::kEntryCapacity>(state.rewardEntryScratch),
@@ -310,6 +315,7 @@ void release_scratch_locked(Context& state) noexcept {
     release_bank(state.progressionScratch);
     release_bank(state.progressionStepScratch);
     release_bank(state.seasonPassRewardScratch);
+    release_bank(state.seasonPassPackageScratch);
     release_bank(state.bountyScratch);
     release_bank(state.rewardPoolScratch);
     release_bank(state.rewardEntryScratch);
@@ -418,6 +424,8 @@ cache::records::Domains occupied_domains(Context& state,
                                             counts.progressionSteps},
         std::span<const season_pass::Reward>{state.seasonPassRewardScratch.data(),
                                              counts.seasonPassRewards},
+        std::span<const season_pass::Package>{state.seasonPassPackageScratch.data(),
+                                              counts.seasonPassPackages},
         std::span<const bounties::Definition>{state.bountyScratch.data(), counts.bounties},
         std::span<const rewards::Pool>{state.rewardPoolScratch.data(), counts.rewardPools},
         std::span<const rewards::Entry>{state.rewardEntryScratch.data(), counts.rewardEntries},

@@ -176,6 +176,30 @@ bool decode(const SeasonPassRewardRecord& record, season_pass::Reward& value) no
     return true;
 }
 
+/** Encodes one season pass wrapper with its unused item slots zeroed. */
+bool encode(const season_pass::Package& value, SeasonPassPackageRecord& record) noexcept {
+    if (value.itemCount > value.items.size()) {
+        return false;
+    }
+    record = {};
+    record.definitionHash = value.definitionHash;
+    record.items = value.items;
+    record.itemCount = value.itemCount;
+    return true;
+}
+
+/** Decodes one season pass wrapper after checking its padding and item count. */
+bool decode(const SeasonPassPackageRecord& record, season_pass::Package& value) noexcept {
+    value = {};
+    if (record.reserved != decltype(record.reserved){} || record.itemCount > record.items.size()) {
+        return false;
+    }
+    value.definitionHash = record.definitionHash;
+    value.items = record.items;
+    value.itemCount = record.itemCount;
+    return true;
+}
+
 /** Encodes one repeatable bounty row with its padding zeroed. */
 bool encode(const bounties::Definition& value, BountyRecord& record) noexcept {
     record = {value.itemType.bank, value.itemType.hash, value.itemIndex, kReservedFieldValue};

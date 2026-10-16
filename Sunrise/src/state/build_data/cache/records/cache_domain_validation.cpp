@@ -170,6 +170,7 @@ template <typename Value, typename Less>
            && counts.recordRewards <= domains.recordRewards.size()
            && counts.progressionSteps <= domains.progressionSteps.size()
            && counts.seasonPassRewards <= domains.seasonPassRewards.size()
+           && counts.seasonPassPackages <= domains.seasonPassPackages.size()
            && counts.bounties <= domains.bounties.size()
            && counts.rewardPools <= domains.rewardPools.size()
            && counts.rewardEntries <= domains.rewardEntries.size()
@@ -261,7 +262,8 @@ bool valid_domains(const BuildIdentity& build, Domains domains) noexcept {
         || !strictly_ordered(domains.abilityBuckets, ability_less)
         || !progressions::valid(domains.progressions, domains.progressionSteps)
         // An empty catalog is complete: a build with no installed pass declares no reward.
-        || (!domains.seasonPassRewards.empty() && !season_pass::valid(domains.seasonPassRewards))
+        || (!domains.seasonPassRewards.empty()
+            && !season_pass::valid(domains.seasonPassRewards, domains.seasonPassPackages))
         || !bounties::valid(domains.bounties)
         || !build_data::records::valid(domains.records,
                                        domains.recordObjectives,

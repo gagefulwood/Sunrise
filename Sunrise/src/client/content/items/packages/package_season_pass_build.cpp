@@ -13,6 +13,45 @@ namespace {
 namespace domain = state::build_data::season_pass;
 
 /**
+ * Reads the item set one reward wrapper opens into.
+ * @param definition Whole item definition blob.
+ * @param itemTable Item index table blob.
+ * @param itemRows Located item index array.
+ * @param package Receives the wrapper's items, or stays empty when the item opens into nothing.
+ * @return True when the item declares no set, or declares one that reads back whole.
+ */
+[[nodiscard]] bool read_package(std::span<const std::byte> definition,
+                                std::span<const std::byte> itemTable,
+                                const tables::Array& itemRows,
+                                domain::Package& package) noexcept {
+    tables::Array set{};
+    if (!tables::find_optional_array_at(definition, tables::kGearsetItemField, set)) {
+        return false;
+    }
+    if (set.count == 0) {
+        return true;
+    }
+    if (set.elementClass != tables::kGearsetItemRowClass || set.count > domain::kPackageItemCapacity
+        || set.dataOffset + static_cast<std::size_t>(set.count) * tables::kGearsetItemStride
+               > definition.size()) {
+        return false;
+    }
+    for (std::uint64_t member = 0; member < set.count; ++member) {
+        std::uint16_t itemIndex = 0;
+        tables::IndexRow entry{};
+        if (!tables::read(definition,
+                          set.dataOffset
+                              + static_cast<std::size_t>(member) * tables::kGearsetItemStride,
+                          itemIndex)
+            || !tables::index_row(itemTable, itemRows, itemIndex, entry)) {
+            return false;
+        }
+        package.items[package.itemCount++] = entry.definitionHash;
+    }
+    return true;
+}
+
+/**
  * Reads one pass row: item, rank, quantity and claim flag, then its sockets and conditions.
  * @return False when any field is unreadable or out of range.
  */
@@ -96,6 +135,7 @@ bool build_season_pass(const reader::Source& source,
                        Storage& storage,
                        std::span<const std::byte> root) noexcept {
     storage.seasonPassRewardCount = 0;
+    storage.seasonPassPackageCount = 0;
 
     std::uint32_t itemTableTag = 0;
     tables::Array itemRows{};
@@ -107,6 +147,7 @@ bool build_season_pass(const reader::Source& source,
         || itemRows.elementClass != tables::kItemIndexTableClass) {
         return false;
     }
+    const std::span<const std::byte> itemTable{storage.itemIndexTable};
 
     std::uint32_t tableTag = 0;
     tables::Array progressions{};
@@ -150,6 +191,29 @@ bool build_season_pass(const reader::Source& source,
             }
             reward = {};
             ++skipped;
+            continue;
+        }
+
+        tables::IndexRow entry{};
+        if (!tables::index_row(itemTable, itemRows, reward.itemIndex, entry)) {
+            return false;
+        }
+        const std::span<const domain::Package> held =
+            std::span(storage.seasonPassPackages).first(storage.seasonPassPackageCount);
+        domain::Package package{};
+        package.definitionHash = entry.definitionHash;
+        if (storage.seasonPassPackageCount < domain::kPackageCapacity
+            && std::none_of(
+                held.begin(),
+                held.end(),
+                [&entry](const domain::Package& row) {
+                    return row.definitionHash == entry.definitionHash;
+                })
+            && reader::read_tag(source, storage.scratch, entry.targetTag, storage.definition)
+            && read_package(
+                std::span<const std::byte>{storage.definition}, itemTable, itemRows, package)
+            && package.itemCount != 0) {
+            storage.seasonPassPackages[storage.seasonPassPackageCount++] = package;
         }
     }
     if (skipped != 0) {

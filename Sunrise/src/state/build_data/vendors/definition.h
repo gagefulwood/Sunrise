@@ -7,8 +7,8 @@
 
 namespace sunrise::state::build_data::vendors {
 
-/** Rows of the installed vendor index. The live table has 511. */
-inline constexpr std::size_t kIndexCapacity = 512;
+/** Hash scans increment a signed 16-bit cursor before comparing the row count. */
+inline constexpr std::size_t kIndexCapacity = 0x7FFF;
 /** Every index row gets a definition, so the two capacities are the same. */
 inline constexpr std::size_t kDefinitionCapacity = kIndexCapacity;
 /** Sale rows across every definition. The live total is 15,768 and one vendor declares 1,044. */
@@ -105,11 +105,7 @@ inline constexpr std::uint32_t kPlainCostWord = 100'000U;
 
 /**
  * One cost entry of a sale row (row +32 array, `kSaleCostRowClass`, 48 bytes), reduced to its
- * static item and quantity. The entry also carries two expression arrays, at +8 and +24, and a
- * word at +40; those decide whether the static quantity is the price at all, and the answer is
- * kept on the row as its `PriceState`. On Xûr's definition every entry is static: item 128 with
- * 29, 23, 97 and 9 units, the Legendary Shard prices of his weapons, armour, Fated Engram and
- * Invitation of the Nine.
+ * static item and quantity. Whether those are the price is the row's `PriceState`.
  */
 struct SaleCost {
     /** Entry +0. Cost item-definition index. */
@@ -148,9 +144,9 @@ struct SaleRow {
     PriceState priceState{PriceState::plain};
 };
 
-/** @return The static cost entries of one sale row, which are its price only while it is plain. */
+/** @return The static cost entries of one sale row; the catalog bounds the count on install. */
 [[nodiscard]] inline std::span<const SaleCost> cost_entries(const SaleRow& row) noexcept {
-    return {row.costs.data(), row.costCount > row.costs.size() ? std::size_t{0} : row.costCount};
+    return {row.costs.data(), static_cast<std::size_t>(row.costCount)};
 }
 
 /** One category row, reduced to the definition hash a rowless request resolves through. */

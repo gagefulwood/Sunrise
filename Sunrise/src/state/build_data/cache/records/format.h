@@ -32,7 +32,7 @@ namespace sunrise::state::build_data::cache::records {
 /** These 8 ASCII bytes mark a Sunrise build-data file. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', 'E', 'B'};
 /** Bump when stored layouts or extracted values change; other versions are rebuilt. */
-inline constexpr std::uint32_t kCacheFormatVersion = 74;
+inline constexpr std::uint32_t kCacheFormatVersion = 75;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
 /** The standard 64-bit FNV-1a offset basis starts the payload checksum. */
@@ -69,6 +69,7 @@ struct Header {
     std::uint32_t imageTimestamp{};
     std::uint32_t imageSize{};
     std::uint64_t configuredEquipmentHash{};
+    std::uint64_t contentHash{};
     std::uint32_t namedCount{};
     std::uint32_t itemCount{};
     std::uint32_t collectibleCount{};
@@ -103,6 +104,7 @@ struct Header {
     std::uint32_t recordRewardCount{};
     std::uint32_t progressionStepCount{};
     std::uint32_t seasonPassRewardCount{};
+    std::uint32_t seasonPassPackageCount{};
     std::uint32_t bountyCount{};
     std::uint32_t rewardPoolCount{};
     std::uint32_t rewardEntryCount{};
@@ -254,7 +256,7 @@ struct ExoticCatalystRecord {
     std::uint16_t completedPlugDefinitionIndex{};
     std::uint16_t progressPlugDefinitionIndex{};
     std::uint16_t effectDefinitionIndex{};
-    std::uint16_t acquisitionDefinitionIndex{};
+    std::uint16_t acquisitionFlag{};
     std::array<std::uint16_t, items::catalysts::kCompletionFlagCapacity>
         completionAccountFlagIndices{};
     std::array<std::uint16_t, items::catalysts::kCompletionFlagCapacity>
@@ -339,6 +341,15 @@ struct SeasonPassRewardRecord {
     std::array<RewardInstructionRecord, season_pass::kConditionCapacity> condition{};
     std::uint8_t conditionCount{};
     /** Must be zero, so the packed reward row always matches. */
+    std::array<std::uint8_t, 3> reserved{};
+};
+
+/** Disk form of one season pass wrapper item and the set it opens into. */
+struct SeasonPassPackageRecord {
+    std::uint32_t definitionHash{};
+    std::array<std::uint32_t, season_pass::kPackageItemCapacity> items{};
+    std::uint8_t itemCount{};
+    /** Must be zero, so the packed wrapper row always matches. */
     std::array<std::uint8_t, 3> reserved{};
 };
 
@@ -677,7 +688,7 @@ static_assert(sizeof(Prefix) == kCacheMagic.size() + sizeof(std::uint32_t));
 static_assert(sizeof(InvestmentConstants)
               == constants::kCharacterStatRowCount + 3 * sizeof(std::uint8_t));
 static_assert(sizeof(Header)
-              == kCacheMagic.size() + 44 * sizeof(std::uint32_t) + 2 * sizeof(std::uint64_t)
+              == kCacheMagic.size() + 45 * sizeof(std::uint32_t) + 3 * sizeof(std::uint64_t)
                      + sizeof(InvestmentConstants)
                      + sizeof(gameplay::entity_position_profiles::Fingerprint));
 static_assert(sizeof(SpawnPointRecord)
@@ -721,6 +732,9 @@ static_assert(sizeof(SeasonPassRewardRecord)
               == 2 * sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t) + 6 * sizeof(std::uint8_t)
                      + rewards::kSocketsPerItem * sizeof(RewardSocketOverrideRecord)
                      + season_pass::kConditionCapacity * sizeof(RewardInstructionRecord));
+static_assert(sizeof(SeasonPassPackageRecord)
+              == (1 + season_pass::kPackageItemCapacity) * sizeof(std::uint32_t)
+                     + 4 * sizeof(std::uint8_t));
 static_assert(sizeof(BountyRecord) == 2 * sizeof(std::uint32_t) + 2 * sizeof(std::uint16_t));
 static_assert(sizeof(RecordDefinitionRecord)
               == sizeof(std::uint32_t) + 10 * sizeof(std::uint16_t) + 5 * sizeof(std::uint8_t));

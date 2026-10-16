@@ -6,10 +6,27 @@
 
 #include "actor_sequences.h"
 #include "internal.h"
+#include "squad_profiles.h"
 #include "validation_internal.h"
 
 namespace sunrise::state::activity_sdk::validation {
 namespace {
+
+/** @return True when every member certificate belongs to its declared squad lane. */
+[[nodiscard]] bool squad_profiles(const Catalog& catalog) noexcept {
+    const auto squads = catalog.squads();
+    const auto members = catalog.squad_members();
+    for (std::size_t index = 0; index < members.size(); ++index) {
+        const auto& member = members[index];
+        if (member.squadIndex >= squads.size()
+            || member.memberOrdinal >= squads[member.squadIndex].members.count
+            || squads[member.squadIndex].members.first + member.memberOrdinal != index
+            || !valid_member_spawn_profile(member, catalog.actor_classes())) {
+            return false;
+        }
+    }
+    return true;
+}
 
 // An empty authored name uses the FNV-1 basis.
 constexpr std::uint32_t kAbsentDefinitionHash = 0x811C9DC5U;
@@ -30,9 +47,11 @@ constexpr std::uint32_t kAbilityTargetComponentClass = 0x80807D9BU;
     const auto slots = catalog.slots();
     for (std::size_t index = 0; index < keys.size(); ++index) {
         const format::AuthoredSceneEventKey& row = keys[index];
-        if (row.sceneSlotIndex >= slots.size() || row.flags != format::kAuthoredSceneEventKeyExact
-            || row.reserved != 0 || row.key == 0 || row.key == format::kAbsentIndex
-            || row.graphTag == 0 || row.graphTag == format::kAbsentIndex) {
+        if (row.sceneSlotIndex >= slots.size()
+            || (row.flags & format::kAuthoredSceneEventKeyExact) == 0
+            || (row.flags & ~format::kAuthoredSceneEventKeyFlagMask) != 0 || row.reserved != 0
+            || row.key == 0 || row.key == format::kAbsentIndex || row.graphTag == 0
+            || row.graphTag == format::kAbsentIndex) {
             return false;
         }
         const format::Slot& slot = slots[row.sceneSlotIndex];
@@ -631,8 +650,9 @@ bool relations(const Catalog& catalog) {
         bool (*run)(const Catalog&) noexcept;
     };
     // Every relation check a catalog must pass, named so a refusal reports which one failed.
-    static constexpr std::array<Check, 8> kChecks{
+    static constexpr std::array<Check, 9> kChecks{
         {{"authored_scene_event_keys", &authored_scene_event_keys},
+         {"squad_profiles", &squad_profiles},
          {"task_targets", &task_targets},
          {"authored_text", &authored_text},
          {"behavior_edges", &behavior_edges},

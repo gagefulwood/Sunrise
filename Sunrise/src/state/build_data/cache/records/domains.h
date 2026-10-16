@@ -66,6 +66,7 @@ struct DomainCounts {
     std::size_t recordRewards{};
     std::size_t progressionSteps{};
     std::size_t seasonPassRewards{};
+    std::size_t seasonPassPackages{};
     std::size_t bounties{};
     std::size_t rewardPools{};
     std::size_t rewardEntries{};
@@ -114,6 +115,7 @@ struct MutableDomains {
     std::span<build_data::records::Reward> recordRewards;
     std::span<progressions::Step> progressionSteps;
     std::span<season_pass::Reward> seasonPassRewards;
+    std::span<season_pass::Package> seasonPassPackages;
     std::span<bounties::Definition> bounties;
     std::span<rewards::Pool> rewardPools;
     std::span<rewards::Entry> rewardEntries;
@@ -161,6 +163,7 @@ struct Domains {
     std::span<const build_data::records::Reward> recordRewards;
     std::span<const progressions::Step> progressionSteps;
     std::span<const season_pass::Reward> seasonPassRewards;
+    std::span<const season_pass::Package> seasonPassPackages;
     std::span<const bounties::Definition> bounties;
     std::span<const rewards::Pool> rewardPools;
     std::span<const rewards::Entry> rewardEntries;

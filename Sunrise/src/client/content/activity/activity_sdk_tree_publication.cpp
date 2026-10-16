@@ -62,8 +62,7 @@ struct Marker final {
 /** Requires one existing ordinary file. */
 [[nodiscard]] bool is_file(const wchar_t* path) noexcept {
     const DWORD attributes = GetFileAttributesW(path);
-    return attributes != INVALID_FILE_ATTRIBUTES
-           && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
+    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
 /** Requires every existing drive-path directory component to be ordinary. */
@@ -363,8 +362,9 @@ Status publish(const wchar_t* stage,
         }
         return Status::rollbackFailure;
     }
-    if ((!hadOutput || remove_tree(backup)) && DeleteFileW(committed.c_str()) != FALSE) {
-        return Status::ready;
+    // The commit is done. A leftover backup or marker is finished by `recover` next time.
+    if (!hadOutput || remove_tree(backup)) {
+        (void)DeleteFileW(committed.c_str());
     }
     return Status::ready;
 }

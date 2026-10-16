@@ -42,7 +42,14 @@ constexpr std::wstring_view kCacheDirectorySuffix = L"\\cache";
 /** One reusable file stores all extracted build mappings. */
 constexpr std::wstring_view kCacheFileSuffix = L"\\cache\\build_data.bin";
 
+/** Set once at boot, before initialize reads it. */
+std::uint64_t g_contentHash{};
+
 } // namespace
+
+void bind_content(std::uint64_t contentHash) noexcept {
+    g_contentHash = contentHash;
+}
 
 /** Loads one full cache, or leaves every domain ready for first-boot extraction. */
 bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
@@ -66,8 +73,8 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
     persistenceState.cachePath = moduleDirectory;
     if (!core::path::append(persistenceState.cacheDirectory, kCacheDirectorySuffix)
         || !core::path::append(persistenceState.cachePath, kCacheFileSuffix)
-        || !cache::current_build_identity(configuredEquipmentHash,
-                                          persistenceState.buildIdentity)) {
+        || !cache::current_build_identity(
+            configuredEquipmentHash, g_contentHash, persistenceState.buildIdentity)) {
         runtime::persistence::clear_locked(persistenceState);
         ReleaseSRWLockExclusive(&persistenceState.lock);
         return false;
@@ -90,8 +97,8 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         ReleaseSRWLockExclusive(&persistenceState.lock);
         return true;
     }
-    if (status == cache::LoadStatus::stale) {
-        // A stale cache is replaced only after every domain is complete.
+    if (status != cache::LoadStatus::loaded) {
+        // Invalid and stale caches stay on disk until every replacement domain is complete.
         persistenceState.replaceStaleCache = true;
         runtime::persistence::release_scratch_locked(persistenceState);
         ReleaseSRWLockExclusive(&persistenceState.lock);
@@ -117,9 +124,8 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         domains.constants.weaponPowerStatRow,
         domains.constants.characterStatRows,
     };
-    if (status != cache::LoadStatus::loaded || !constants::replace(cachedConstants)
-        || !content::replace(domains.named) || !content::seal() || !items::replace(domains.items)
-        || !collectibles::replace(domains.collectibles)
+    if (!constants::replace(cachedConstants) || !content::replace(domains.named) || !content::seal()
+        || !items::replace(domains.items) || !collectibles::replace(domains.collectibles)
         || !rewards::replace({domains.rewardPools,
                               domains.rewardEntries,
                               domains.rewardItems,
@@ -137,7 +143,8 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         || !catalystsReplaced || !abilities::replace(domains.abilityBuckets)
         || !progressions::replace(domains.progressions, domains.progressionSteps)
         // An empty catalog is complete: a build with no installed pass declares no reward.
-        || (!domains.seasonPassRewards.empty() && !season_pass::replace(domains.seasonPassRewards))
+        || (!domains.seasonPassRewards.empty()
+            && !season_pass::replace(domains.seasonPassRewards, domains.seasonPassPackages))
         || !bounties::replace(domains.bounties)
         || !records::replace(domains.records,
                              domains.recordObjectives,
@@ -167,9 +174,10 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         runtime::clear_catalogs();
         gameplay::entity_position_profiles::reset();
         gameplay::entity_object_types::reset();
-        runtime::persistence::clear_locked(persistenceState);
+        persistenceState.replaceStaleCache = true;
+        runtime::persistence::release_scratch_locked(persistenceState);
         ReleaseSRWLockExclusive(&persistenceState.lock);
-        return false;
+        return true;
     }
     runtime::details::publish();
     runtime::named::publish();
