@@ -11,6 +11,7 @@
 #include "../../../middleware/web_service/messages/opcode206.h"
 #include "../../../state/activity/bubble_authority/runtime.h"
 #include "../../../state/runtime/runtime.h"
+#include "../../../state/runtime/state_vendor_reputation_runtime.h"
 #include "../../activity/host_runtime.h"
 #include "../../gameplay/peer/peer_transport.h"
 #include "../../gameplay/squad_entity_retirement.h"
@@ -442,6 +443,11 @@ bool consume(Session& session,
                 frame.serviceId, "commit", fits ? commitReason : "frame_capacity");
         }
         if (handled) {
+            if (outcome.answeredInteraction) {
+                state::mark_vendor_interaction_answered(
+                    outcome.answeredInteraction->vendorIndex,
+                    outcome.answeredInteraction->interactionIndex);
+            }
             std::copy_n(scratch.framed.begin(), framedSize, response.begin());
             written = framedSize;
             entityLease.release();
