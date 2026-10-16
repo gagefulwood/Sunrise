@@ -31,7 +31,7 @@ namespace sunrise::state::build_data::cache::records {
 
 /** These 8 ASCII bytes mark a Sunrise build-data file. */
 inline constexpr std::array<char, 8> kCacheMagic{'S', 'U', 'N', 'R', 'I', 'S', 'E', 'B'};
-/** Bump when stored layouts or extracted values change; other versions are rebuilt. */
+/** Format 75 stores reward-catalog domains and season-pass wrappers; other versions are rebuilt. */
 inline constexpr std::uint32_t kCacheFormatVersion = 75;
 /** Signed -1 on disk means there is no equipment slot. */
 inline constexpr std::int8_t kAbsentEquipmentSlot = -1;
@@ -324,7 +324,7 @@ struct RewardSocketOverrideRecord {
 struct RewardInstructionRecord {
     std::uint8_t opcode{};
     std::uint8_t bank{};
-    /** Must be zero, so the packed instruction always matches. */
+    /** Must be zero for canonical cache encoding. */
     std::uint16_t reserved{};
     std::uint32_t operand{};
 };
@@ -340,7 +340,7 @@ struct SeasonPassRewardRecord {
     std::uint8_t socketCount{};
     std::array<RewardInstructionRecord, season_pass::kConditionCapacity> condition{};
     std::uint8_t conditionCount{};
-    /** Must be zero, so the packed reward row always matches. */
+    /** Must be zero for canonical cache encoding. */
     std::array<std::uint8_t, 3> reserved{};
 };
 
@@ -349,7 +349,7 @@ struct SeasonPassPackageRecord {
     std::uint32_t definitionHash{};
     std::array<std::uint32_t, season_pass::kPackageItemCapacity> items{};
     std::uint8_t itemCount{};
-    /** Must be zero, so the packed wrapper row always matches. */
+    /** Must be zero for canonical cache encoding. */
     std::array<std::uint8_t, 3> reserved{};
 };
 

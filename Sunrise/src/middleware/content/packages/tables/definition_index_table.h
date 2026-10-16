@@ -30,7 +30,7 @@ inline constexpr std::uint16_t kAbsentPackageId = 0xFFFFU;
 
 /** Element class of the item index table inside the investment container. */
 inline constexpr std::uint32_t kItemIndexTableClass = 0x80807BE8U;
-/** One item-index row. Row +0 carries the definition hash. */
+/** Serialized width of one item-index row; byte zero carries the definition hash. */
 inline constexpr std::size_t kItemIndexRowStride = 24;
 /** Serialized item definition class, distinct from the item index table class. */
 inline constexpr std::uint32_t kItemDefinitionClass = 0x80807BEAU;
@@ -230,9 +230,11 @@ inline constexpr std::size_t kProgressionRewardClaimSlotOffset = 20;
 /** Eligibility expressions and socket overrides carried by one progression reward. */
 inline constexpr std::size_t kProgressionRewardConditionsOffset = 24;
 inline constexpr std::size_t kProgressionRewardSocketsOffset = 40;
-/** Items a wrapper item opens into, two bytes each as an item-definition index. */
+/** Item-definition field containing the wrapper's gear-set array. */
 inline constexpr std::size_t kGearsetItemField = 392;
+/** Element class of one gear-set item-index row. */
 inline constexpr std::uint32_t kGearsetItemRowClass = 0x808087DBU;
+/** Serialized width of one gear-set item index. */
 inline constexpr std::size_t kGearsetItemStride = 2;
 
 /** Expression that makes one collectible acquired, which a purchase or a grant sets. */

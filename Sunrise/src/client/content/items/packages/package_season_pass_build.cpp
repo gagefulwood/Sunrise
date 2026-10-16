@@ -13,12 +13,12 @@ namespace {
 namespace domain = state::build_data::season_pass;
 
 /**
- * Reads the item set one reward wrapper opens into.
+ * Reads the item set declared by one reward wrapper.
  * @param definition Whole item definition blob.
  * @param itemTable Item index table blob.
  * @param itemRows Located item index array.
- * @param package Receives the wrapper's items, or stays empty when the item opens into nothing.
- * @return True when the item declares no set, or declares one that reads back whole.
+ * @param package Empty destination receiving resolved item hashes; may be partial on failure.
+ * @return True when the item declares no set, or its whole set resolves.
  */
 [[nodiscard]] bool read_package(std::span<const std::byte> definition,
                                 std::span<const std::byte> itemTable,
@@ -53,6 +53,12 @@ namespace domain = state::build_data::season_pass;
 
 /**
  * Reads one pass row: item, rank, quantity and claim flag, then its sockets and conditions.
+ * @param storage Build storage providing item rows, slot maps, and condition decoding.
+ * @param progressionTable Progression table containing the row.
+ * @param itemRows Located item index array.
+ * @param at Byte offset of the reward row.
+ * @param reward Receives the decoded row; may be partial on failure.
+ * @param failure Receives a condition-bank storage failure when one occurs.
  * @return False when any field is unreadable or out of range.
  */
 bool read_season_reward(Storage& storage,

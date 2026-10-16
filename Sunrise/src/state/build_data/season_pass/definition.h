@@ -49,6 +49,7 @@ struct Package {
     std::uint32_t definitionHash{};
     /** Authored definition hashes the wrapper opens into, in declared order. */
     std::array<std::uint32_t, kPackageItemCapacity> items{};
+    /** Number of populated entries at the start of items. */
     std::uint8_t itemCount{};
 };
 

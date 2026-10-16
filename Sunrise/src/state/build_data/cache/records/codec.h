@@ -90,13 +90,39 @@ namespace sunrise::state::build_data::cache::records {
 [[nodiscard]] bool encode(const progressions::Step& value, ProgressionStepRecord& record) noexcept;
 [[nodiscard]] bool decode(const ProgressionStepRecord& record, progressions::Step& value) noexcept;
 
+/**
+ * Encodes one season pass reward into its canonical disk form.
+ * @param value Runtime reward row.
+ * @param record Receives the disk row; may be partial on failure.
+ * @return False when counts or nested reward data are invalid.
+ */
 [[nodiscard]] bool encode(const season_pass::Reward& value,
                           SeasonPassRewardRecord& record) noexcept;
+
+/**
+ * Decodes one canonical season pass reward.
+ * @param record Disk row to validate and decode.
+ * @param value Receives the runtime row; may be partial on failure.
+ * @return False when padding, counts, or nested reward data are invalid.
+ */
 [[nodiscard]] bool decode(const SeasonPassRewardRecord& record,
                           season_pass::Reward& value) noexcept;
 
+/**
+ * Encodes one season pass wrapper into its canonical disk form.
+ * @param value Runtime wrapper package.
+ * @param record Receives the disk row; unchanged when the item count is invalid.
+ * @return False when the item count exceeds fixed storage.
+ */
 [[nodiscard]] bool encode(const season_pass::Package& value,
                           SeasonPassPackageRecord& record) noexcept;
+
+/**
+ * Decodes one canonical season pass wrapper.
+ * @param record Disk row to validate and decode.
+ * @param value Receives the runtime package, or is cleared on failure.
+ * @return False when padding or the item count is invalid.
+ */
 [[nodiscard]] bool decode(const SeasonPassPackageRecord& record,
                           season_pass::Package& value) noexcept;
 
