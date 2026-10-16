@@ -127,8 +127,7 @@ struct ServiceOutcome {
     middleware::bap::family_unsubscription::Request unsubscription{};
     bool hasChangeCharacter{};
     bool hasSelectCharacter{};
-    /** Vendor interaction marked answered only after the enclosing investment transaction commits.
-     */
+    /** Vendor interaction marked answered after the enclosing investment transaction commits. */
     std::optional<state::AnsweredVendorInteraction> answeredInteraction{};
     /** One service owns at most one independently versioned, exact-sized transaction. */
     using Transaction = std::variant<std::monostate,
@@ -156,21 +155,14 @@ struct ServiceOutcome {
 template <typename Transaction, typename... Args>
 [[nodiscard]] Transaction* emplace_transaction(ServiceOutcome& outcome, Args&&... args) noexcept {
     static_assert(std::is_nothrow_constructible_v<Transaction, Args...>);
-
     outcome.transaction.template emplace<std::monostate>();
-
     auto storage =
-
         std::unique_ptr<Transaction>{new (std::nothrow) Transaction(std::forward<Args>(args)...)};
-
     if (storage == nullptr) {
         return nullptr;
     }
-
     auto* transaction = storage.get();
-
     outcome.transaction.template emplace<std::unique_ptr<Transaction>>(std::move(storage));
-
     return transaction;
 }
 
@@ -178,7 +170,6 @@ template <typename Transaction, typename... Args>
 template <typename Transaction>
 [[nodiscard]] Transaction* transaction_if(ServiceOutcome& outcome) noexcept {
     auto* storage = std::get_if<std::unique_ptr<Transaction>>(&outcome.transaction);
-
     return storage == nullptr ? nullptr : storage->get();
 }
 
@@ -186,7 +177,6 @@ template <typename Transaction>
 template <typename Transaction>
 [[nodiscard]] const Transaction* transaction_if(const ServiceOutcome& outcome) noexcept {
     const auto* storage = std::get_if<std::unique_ptr<Transaction>>(&outcome.transaction);
-
     return storage == nullptr ? nullptr : storage->get();
 }
 
