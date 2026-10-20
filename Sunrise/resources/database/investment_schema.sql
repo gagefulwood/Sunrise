@@ -1,5 +1,5 @@
 PRAGMA application_id = 1397902921;
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 
 CREATE TABLE account (
     id INTEGER PRIMARY KEY CHECK (id = 1),
