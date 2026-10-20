@@ -483,7 +483,7 @@ bool preview_reward_unlocks(const PendingRecordRewardGrant& mutation,
             after.accountFlags[flag] = unlocks::kFlagSet;
         }
     }
-    const auto& claim = mutation.vendorReward;
+    const VendorRankRewardClaim& claim = mutation.vendorReward;
     if (claim.beforeCredits != 0) {
         if (claim.rankCreditRow >= after.characterObjectValues.size()
             || !vendor_rank_reward_current(claim)
