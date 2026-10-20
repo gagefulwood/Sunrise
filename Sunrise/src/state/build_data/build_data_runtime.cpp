@@ -31,7 +31,7 @@
 #include "sobjects/sobject_catalog.h"
 #include "socket_entry_lists/socket_entry_list_catalog.h"
 #include "spawn_sets/spawn_set_catalog.h"
-#include "vendors/reputation_sale_catalog.h"
+#include "vendors/reputation_turn_in_catalog.h"
 #include "vendors/vendor_catalog.h"
 
 namespace sunrise::state::build_data {
@@ -80,7 +80,7 @@ bool initialize(void* module, std::uint64_t configuredEquipmentHash) noexcept {
         return false;
     }
     persistenceState.enabled = true;
-    if (!vendors::load_reputation_sales(module)) {
+    if (!vendors::load_reputation_turn_ins(module)) {
         runtime::persistence::clear_locked(persistenceState);
         ReleaseSRWLockExclusive(&persistenceState.lock);
         return false;

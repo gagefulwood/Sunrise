@@ -34,6 +34,12 @@ inline constexpr std::uint32_t kInteractionRowClass = 0x80807857U;
 inline constexpr std::size_t kInteractionConditionField = 8;
 /** Interaction row +56 names the vendor category it presents. */
 inline constexpr std::size_t kInteractionCategoryOffset = 56;
+/** Interaction row +40 holds the reply array. */
+inline constexpr std::size_t kInteractionReplyField = 40;
+/** Each reply is 24 bytes, beginning with its conditional reward program. */
+inline constexpr std::size_t kReplyRowStride = 24;
+/** Element class of the installed interaction reply array. */
+inline constexpr std::uint32_t kReplyRowClass = 0x8080785BU;
 /** Raw reset interval. Its unit, epoch and scope are open, so it is stored unconverted. */
 inline constexpr std::size_t kResetIntervalOffset = 20;
 /** Raw reset phase, paired with the interval. */
