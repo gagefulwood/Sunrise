@@ -768,6 +768,18 @@ void dispatch_intent(RuntimeInstance& instance, std::uint64_t now) noexcept {
         if (!reserve_or_refuse(instance, reservation, "object_refused")) {
             return;
         }
+        const sunrise::middleware::bap::activity_message::scriptable_auth::Type4TimedClock timed{
+            .present = intent.timedChild,
+            .remainingSeconds = intent.timedRemainingSeconds,
+            .totalSeconds = intent.timedTotalSeconds,
+            .epochTicks = intent.timedEpochTicks,
+            .running = intent.timedRunning,
+            .inPlace = intent.timedInPlace};
+        const sunrise::middleware::bap::activity_message::scriptable_auth::Type4PositionChild
+            position{.present = intent.positionChild,
+                     .revision = intent.positionRevision,
+                     .value = intent.positionValue,
+                     .snap = intent.positionSnap};
         std::uint64_t carrier = 0;
         const devices::Status status = deliver_through_holder(
             instance, intent, kDeviceWalk, carrier, [&](const sdk::BoundView& view) noexcept {
@@ -777,6 +789,9 @@ void dispatch_intent(RuntimeInstance& instance, std::uint64_t now) noexcept {
                     std::span(intent.burstRows).first(intent.burstRowCount),
                     intent.entryIndex,
                     intent.active,
+                    intent.capturePlate,
+                    timed,
+                    position,
                     reservation);
             });
         finish_reserved(

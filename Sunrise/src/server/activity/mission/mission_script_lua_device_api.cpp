@@ -11,6 +11,7 @@
 #include "../../../middleware/bap/activity_message/darkness_zone_auth.h"
 #include "../../../middleware/bap/activity_message/ghost_link_auth.h"
 #include "../../../middleware/bap/activity_message/interactable_object_auth.h"
+#include "../../../middleware/bap/activity_message/mission_effect_auth.h"
 #include "../../../middleware/encoding/bit_writer.h"
 #include "mission_script_lua_internal.h"
 
@@ -30,11 +31,13 @@ constexpr const api::MemberSpec& kOccupancy = api::slot_member("set_occupancy_co
 constexpr const api::MemberSpec& kDarknessZone = api::slot_member("set_darkness_zone");
 constexpr const api::MemberSpec& kObjectFilter = api::slot_member("set_object_filter");
 constexpr const api::MemberSpec& kWatchDamage = api::slot_member("watch_damage");
+constexpr const api::MemberSpec& kHopOn = api::slot_member("set_hop_on");
 constexpr const api::MemberSpec& kInteractable = api::slot_member("set_interactable_object");
 constexpr const api::MemberSpec& kSetGhostLink = api::slot_member("set_ghost_link");
 constexpr const api::MemberSpec& kGhostLink = api::slot_member("ghost_link");
 constexpr const api::MemberSpec& kObjectActive = api::slot_member("set_object_active");
 constexpr const api::MemberSpec& kSetChannel = api::slot_member("set_channel");
+constexpr const api::MemberSpec& kOutputChannels = api::slot_member("set_output_channels");
 constexpr const api::MemberSpec& kTransition = api::slot_member("transition");
 constexpr const api::MemberSpec& kFireTrigger = api::slot_member("fire_trigger");
 constexpr const api::MemberSpec& kDisarmTrigger = api::slot_member("disarm_trigger");
@@ -345,6 +348,41 @@ constexpr std::int8_t kFilterModeInside = 1;
     return queue_slot_auth(state, slot, auth::kType34Schema, bits, std::span(bytes).first(written));
 }
 
+/**
+ * Starts or stops one authored type-26 hop-on. Started, it spawns its object on every object the
+ * named type-34 filter matches; stopped, it removes them. A higher revision re-gathers.
+ */
+[[nodiscard]] int slot_set_hop_on(lua_State* state) {
+    namespace effect = middleware::bap::activity_message::mission_effect;
+    const auto* const handle =
+        static_cast<const SlotHandle*>(luaL_checkudata(state, 1, kSlotMetatable));
+    refuse_unknown_arguments(state, kHopOn);
+    SlotDefinition slot{};
+    if (!current_slot(state, *handle, slot) || slot.slotType != effect::kSlotType
+        || slot.authSchema != effect::kSchema) {
+        return luaL_error(state, "hop-on requires an authored type-26 sensor");
+    }
+    scriptable_auth::Type2LaneClientRef filter{};
+    if (!optional_slot_reference(state,
+                                 optional_key(kHopOn, "filter", api::ValueKind::handle),
+                                 scriptable_auth::kType34SlotType,
+                                 filter)) {
+        return luaL_error(state, "hop-on filter must be an authored type-34 sensor");
+    }
+    const lua_Integer revision =
+        checked_integer_argument(state, required_key(kHopOn, "revision", api::ValueKind::integer));
+    if (revision <= 0 || revision > INT32_MAX) {
+        return luaL_error(state, "hop-on revision must be a positive int32");
+    }
+    std::array<std::byte, effect::kBytes> body{};
+    std::size_t written = 0;
+    if (!effect::encode(
+            filter, filter.slotIndex >= 0, static_cast<std::int32_t>(revision), body, written)) {
+        return luaL_error(state, "hop-on encoder failed");
+    }
+    return queue_slot_auth(state, slot, effect::kSchema, effect::kBits, body);
+}
+
 /** Binds an authored damage monitor to one exact object; a new revision re-binds it. */
 [[nodiscard]] int slot_watch_damage(lua_State* state) {
     namespace damage = middleware::bap::activity_message::damage_monitor;
@@ -518,6 +556,51 @@ constexpr std::int8_t kFilterModeInside = 1;
     intent.deviceChannel = channel.channel;
     intent.deviceSnap = snap;
     return queue_intent(state, frame, intent);
+}
+
+/** Sets a prefix of the target object's authored output channels. */
+int slot_set_output_channels(lua_State* state) {
+    const auto* handle = static_cast<const SlotHandle*>(luaL_checkudata(state, 1, kSlotMetatable));
+    SlotDefinition slot{};
+    if (!current_slot(state, *handle, slot) || slot.slotType != format::kChannelSlotType
+        || slot.componentClass != format::kChannelComponentClass
+        || slot.senseSchema != format::kChannelSenseSchema
+        || slot.authSchema != format::kChannelAuthSchema
+        || (slot.flags & format::kSlotSchemaJoinExact) == 0
+        || (slot.flags & format::kSlotOutputChannelsExact) == 0 || slot.outputChannelCount == 0
+        || slot.outputChannelCount > scriptable_auth::kType24ChannelCapacity) {
+        return luaL_error(state, "output channels require an exact authored target and count");
+    }
+    refuse_unknown_arguments(state, kOutputChannels);
+    const lua_Integer revision = checked_integer_argument(
+        state, required_key(kOutputChannels, "revision", api::ValueKind::integer));
+    if (revision < 1 || revision > api::kInt32Maximum) {
+        return luaL_error(state, "output revision must be a positive int32");
+    }
+    (void)push_argument(state, required_key(kOutputChannels, "values", api::ValueKind::list));
+    luaL_checktype(state, -1, LUA_TTABLE);
+    refuse_unknown_fields(state, -1, {});
+    const std::size_t count = lua_rawlen(state, -1);
+    if (count == 0 || count > slot.outputChannelCount) {
+        return luaL_error(state, "output values exceed the authored channel count");
+    }
+    scriptable_auth::Type24Body body{};
+    body.count = static_cast<std::uint8_t>(count);
+    for (std::size_t index = 0; index < count; ++index) {
+        lua_rawgeti(state, -1, static_cast<lua_Integer>(index + 1));
+        const auto* value =
+            static_cast<const UnitScalarHandle*>(luaL_checkudata(state, -1, kUnitScalarMetatable));
+        body.channels[index] = {static_cast<std::int32_t>(revision), value->value, 0.F};
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+    std::array<std::byte, scriptable_auth::kType24MaximumByteCount> bytes{};
+    std::size_t written = 0, bits = 0;
+    if (!scriptable_auth::encode_type24(body, bytes, written, bits)) {
+        return luaL_error(state, "output channel encoder failed");
+    }
+    return queue_slot_auth(
+        state, slot, scriptable_auth::kType24Schema, bits, std::span(bytes).first(written));
 }
 
 /** Applies one named device transition through the same guarded channel route. */

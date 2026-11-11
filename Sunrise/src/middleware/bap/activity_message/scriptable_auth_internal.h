@@ -1,5 +1,6 @@
 #pragma once
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -51,6 +52,18 @@ using auth_fields::write_absent_client_ref;
     return reader.read(kSigned32Width, key) && reader.read(kClientRefTypeWidth, type)
            && reader.read(kClientRefIndexWidth, index) && key == kClientRefAbsentKey && type == 0
            && index == kClientRefIndexBias - 1U;
+}
+
+/** Writes the complete fixed-width 0x808099C4 child layout. */
+[[nodiscard]] inline bool write_shared_timed_state(encoding::bits::Writer& writer,
+                                                   const SharedTimedState& state) noexcept {
+    return writer.write(state.running ? 1U : 0U, kBoolWidth)
+           && writer.write(state.minimum, kWideIntegerWidth)
+           && writer.write(state.maximum, kWideIntegerWidth)
+           && writer.write(state.currentAtEpoch, kWideIntegerWidth)
+           && writer.write(state.remainingAtEpoch, kWideIntegerWidth)
+           && writer.write(state.epoch, kWideIntegerWidth)
+           && writer.write(std::bit_cast<std::uint32_t>(state.rate), kReal32Width);
 }
 
 /** @return True when a two-bit bias-one scalar is representable without wrapping. */

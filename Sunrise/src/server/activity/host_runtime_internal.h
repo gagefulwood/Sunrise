@@ -76,6 +76,12 @@ struct ScriptableRequest final {
     std::uint8_t lifetimeState{kDefaultLifetimeState};
     bool snap{};
     bool active{};
+    /** An object request also carries the no-change capture-plate component Auth. */
+    bool capturePlate{};
+    /** An object request also carries the enabled timed component Auth with this clock. */
+    middleware::bap::activity_message::scriptable_auth::Type4TimedClock timed{};
+    /** An object request also carries the state-machine position lane (in place). */
+    middleware::bap::activity_message::scriptable_auth::Type4PositionChild position{};
 };
 
 /** One owned client envelope without a richer typed mission reducer. */

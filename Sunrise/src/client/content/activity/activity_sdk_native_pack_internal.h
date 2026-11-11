@@ -85,6 +85,12 @@ struct CachedTag final {
                                               PackageContext& packageContext,
                                               topology_enrichment::Snapshot& enrichment);
 
+/** Attaches exact output counts from each resolved type-24 object target. */
+[[nodiscard]] bool attach_channel_bounds(const topology_inventory::Snapshot& topology,
+                                         const squads::Facts& facts,
+                                         PackageContext& packageContext,
+                                         topology_enrichment::Snapshot& enrichment);
+
 /** Marks the SDK slot row of every type-43 scene whose descriptor names no resource. */
 [[nodiscard]] bool attach_unresourced_scenes(const topology_inventory::Snapshot& topology,
                                              const authored_scene::Snapshot& scenes,

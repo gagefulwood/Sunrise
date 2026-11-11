@@ -480,6 +480,11 @@ prepare_slot(const sdk::BoundView& view, std::uint32_t slotRow, PreparedDevice& 
         || typed(message::map_generator_auth::kSlotType,
                  message::map_generator_auth::kComponentClass,
                  message::map_generator_auth::kSchema);
+    const bool outputs =
+        typed(format::kChannelSlotType, format::kChannelComponentClass, format::kChannelAuthSchema)
+        && slot.senseSchema == format::kChannelSenseSchema
+        && (slot.flags & format::kSlotOutputChannelsExact) != 0
+        && auth::validate_type24_body(body, bitCount, slot.reserved);
     const bool occupancy = slotType == format::kOccupancySlotType
                            && authSchema == format::kOccupancyAuthSchema
                            && bitCount == kOccupancyAuthBits && body.size() == kOccupancyAuthBytes;
@@ -487,10 +492,24 @@ prepare_slot(const sdk::BoundView& view, std::uint32_t slotRow, PreparedDevice& 
         return slotType == type && authSchema == schema;
     };
     const bool scriptable = exact(auth::kType68SlotType, auth::kType68Schema)
-                            || exact(auth::kType70SlotType, auth::kType70Schema)
                             || exact(auth::kType71SlotType, auth::kType71Schema)
                             || exact(auth::kType42SlotType, auth::kType42Schema)
                             || exact(auth::kType2SlotType, auth::kType2Schema);
+    auth::Type70Preset engagementBody{};
+    bool engagement =
+        slotType == auth::kType70SlotType && slot.componentClass == auth::kType70ComponentClass
+        && authSchema == auth::kType70Schema && auth::decode_type70(body, bitCount, engagementBody);
+    for (std::size_t index = 0; engagement && index < engagementBody.volumeCount; ++index) {
+        const auth::Type2LaneClientRef& volume = engagementBody.volumes[index];
+        // The native audience reader dereferences each volume's player mask without a null guard.
+        const std::ptrdiff_t matches =
+            std::count_if(slots.begin(), slots.end(), [&](const format::Slot& target) {
+                return target.objectIndex == slot.objectIndex
+                       && target.slotType == auth::kType60SlotType
+                       && target.slotIndex == static_cast<std::uint16_t>(volume.slotIndex);
+            });
+        engagement = volume.registryKey == registryKey && matches == 1;
+    }
     auth::Type32VolumeBody volumeBody{};
     bool volumeToggle = slotType == auth::kType32SlotType && authSchema == auth::kType32Schema
                         && slot.componentClass == auth::kType32ComponentClass
@@ -505,7 +524,7 @@ prepare_slot(const sdk::BoundView& view, std::uint32_t slotRow, PreparedDevice& 
         });
         volumeToggle = matches == 1;
     }
-    if (!typedSdkBody && !occupancy && !scriptable && !volumeToggle) {
+    if (!typedSdkBody && !occupancy && !scriptable && !engagement && !volumeToggle && !outputs) {
         return Status::invalidBody;
     }
     return Status::ready;
